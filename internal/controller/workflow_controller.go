@@ -23,6 +23,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	argoprojiov1alpha1 "github.com/argoproj/argo-workflows/pkg/apis/workflow/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -40,7 +41,7 @@ const (
 	statusLabel      = "argo.slsa.io/status"
 )
 
-//+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -54,6 +55,10 @@ const (
 func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
+	// Create a logger instance (using zap)
+	log.SetLogger(zap.New())
+	logger := log.Log.WithName("controller")
+
 	// get workflow resource
 	var workflow argoprojiov1alpha1.Workflow
 	if err := r.Get(ctx, req.NamespacedName, &workflow); err != nil {
@@ -61,13 +66,13 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			// ignoring not-found errors, since we can get them on deleted requests.
 			return ctrl.Result{}, nil
 		}
-		log.Error(err, "unable to fetch Workflow")
+		logger.Error(err, "unable to fetch Workflow")
 		return ctrl.Result{}, err
 	}
 
 	// start securing the supply chain if enabled
 	isEnabled := workflow.Annotations[enableAnnotation] == "true"
-	status, labelIsPresent := workflow.Labels[statusLabel]
+	_, labelIsPresent := workflow.Labels[statusLabel]
 
 	if isEnabled {
 		if !labelIsPresent {
@@ -75,13 +80,13 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				workflow.Labels = make(map[string]string)
 			}
 			workflow.Labels[statusLabel] = "in-progress"
-			log.Info("adding label")
+			logger.Info("adding label")
 		} else {
 			// label already available
 			return ctrl.Result{}, nil
 		}
 	} else {
-		log.Info("Ignoring the workflow")
+		logger.Info("Ignoring the workflow")
 		return ctrl.Result{}, nil
 	}
 
@@ -97,7 +102,7 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			// Requeue the workflow to try to reconciliate again.
 			return ctrl.Result{Requeue: true}, nil
 		}
-		log.Error(err, "unable to update workflow")
+		logger.Error(err, "unable to update workflow")
 		return ctrl.Result{}, err
 	}
 
