@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	argoprojiov1alpha1 "github.com/argoproj/argo-workflows/pkg/apis/workflow/v1alpha1"
+	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
@@ -60,7 +60,7 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	logger := log.Log.WithName("controller")
 
 	// get workflow resource
-	var workflow argoprojiov1alpha1.Workflow
+	var workflow wfv1alpha1.Workflow
 	if err := r.Get(ctx, req.NamespacedName, &workflow); err != nil {
 		if apierrors.IsNotFound(err) {
 			// ignoring not-found errors, since we can get them on deleted requests.
@@ -112,6 +112,6 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkflowReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&argoprojiov1alpha1.Workflow{}).
+		For(&wfv1alpha1.Workflow{}).
 		Complete(r)
 }
