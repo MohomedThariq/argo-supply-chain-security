@@ -41,7 +41,7 @@ const (
 	statusLabel      = "argo.slsa.io/status"
 )
 
-// +kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

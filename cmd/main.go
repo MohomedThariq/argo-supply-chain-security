@@ -34,6 +34,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
+
 	"github.com/MohomedThariq/argo-supply-chain-security/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
@@ -45,6 +47,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(wfv1alpha1.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
 }
