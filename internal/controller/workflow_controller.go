@@ -23,7 +23,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	corev1 "k8s.io/api/core/v1"
 
 	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,29 +36,42 @@ type WorkflowReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// Supply chain security annotaions & labels const
+// Supply chain security annotations & labels const
 const (
-	enableAnnotation = "argo.slsa.io/enable"
-	statusLabel      = "argo.slsa.io/status"
+	enableAnnotation string = "argo.slsa.io/enable"
+	statusLabel      string = "argo.slsa.io/status"
 )
 
 //+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list
+//+kubebuilder:rbac:groups="",resources=pods/log,verbs=get;list;watch;update;patch
+
+// update current status in workflow
+func updateWFStatus(r *WorkflowReconciler, ctx context.Context, wf *wfv1alpha1.Workflow, label string, status string) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	if wf.Labels == nil {
+		wf.Labels = make(map[string]string)
+	} else if wf.Labels[label] == status {
+		// ignore update if status is same
+		return ctrl.Result{}, nil
+	}
+	wf.Labels[label] = status
+	if err := r.Update(ctx, wf); err != nil {
+		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		logger.Error(err, "unable to update workflow status")
+		return ctrl.Result{}, err
+	}
+	logger.Info("Workflow status updated", "status", status)
+	return ctrl.Result{}, nil
+}
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Workflow object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.17.3/pkg/reconcile
 func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
-
-	// Create a logger instance (using zap)
-	log.SetLogger(zap.New())
-	logger := log.Log.WithName("controller")
+	logger := log.FromContext(ctx)
 
 	// get workflow resource
 	var workflow wfv1alpha1.Workflow
@@ -70,43 +84,57 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	// if workflow is still running requeue
+	// FIX_ME: this should not be done. should reconcile while running as well
+	if workflow.Status.Phase != "Succeeded" && workflow.Status.Phase != "Failed" {
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	// start securing the supply chain if enabled
 	isEnabled := workflow.Annotations[enableAnnotation] == "true"
-	_, labelIsPresent := workflow.Labels[statusLabel]
+	status, labelIsPresent := workflow.Labels[statusLabel]
 
+	// check if enabled & start securing the supply chain
 	if isEnabled {
 		if !labelIsPresent {
-			if workflow.Labels == nil {
-				workflow.Labels = make(map[string]string)
-			}
-			workflow.Labels[statusLabel] = "in-progress"
-			logger.Info("adding label")
-		} else {
-			// label already available
+			return updateWFStatus(r, ctx, &workflow, statusLabel, "in-progress")
+		} else if status == "completed" || status == "error" {
+			// process is already completed or failed
 			return ctrl.Result{}, nil
 		}
 	} else {
-		logger.Info("Ignoring the workflow")
+		logger.Info("Not enabled ignoring workflow")
 		return ctrl.Result{}, nil
 	}
 
-	// update the resource with status
-	if err := r.Update(ctx, &workflow); err != nil {
-		if apierrors.IsConflict(err) {
-			// The workflow has been updated since we read it.
-			// Requeue the workflow to try to reconciliate again.
-			return ctrl.Result{Requeue: true}, nil
-		}
-		if apierrors.IsNotFound(err) {
-			// The workflow has been deleted since we read it.
-			// Requeue the workflow to try to reconciliate again.
-			return ctrl.Result{Requeue: true}, nil
-		}
-		logger.Error(err, "unable to update workflow")
+	// get pod names associated with the workflow
+	podList := &corev1.PodList{}
+	labelSelector := client.MatchingLabels{"workflows.argoproj.io/workflow": workflow.Name}
+	if err := r.List(ctx, podList, client.InNamespace(req.Namespace), labelSelector); err != nil {
+		logger.Error(err, "unable to list pods for the workflow", "workflow", workflow.Name)
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	for _, pod := range podList.Items {
+		logger.Info("Pod name", "podName", pod.Name)
+	}
+
+	// NEXT_STEPS:
+	// 		read the logs & get the image namescec
+	// 		maintain state on pods in pod level
+	// 				argo.slsa.io/status: in-progress
+	// 				argo.slsa.io/status: completed
+	// 				argo.slsa.io/status: error
+	// 				argo.slsa.io/status: no-artifacts-to-sign
+	// 		signing the images
+	// 		uploading the signatures to the registry
+	// 		attestation for the images
+	// 		sign and upload the attestation to the registry
+	// 		sbom generation for the images
+	// 		sign and upload the sbom to the registry
+
+	// set the status to completed
+	return updateWFStatus(r, ctx, &workflow, statusLabel, "completed")
 }
 
 // SetupWithManager sets up the controller with the Manager.

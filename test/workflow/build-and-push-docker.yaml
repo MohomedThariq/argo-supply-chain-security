@@ -1,0 +1,54 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: build-and-push-docker-
+  annotations:
+    argo.slsa.io/enable: "true"
+spec:
+  entrypoint: main
+  volumes:
+  - name: kaniko-secret
+    secret:
+      secretName: docker-hub-credentials    # name of an existing k8s secret
+      items:
+        - key: .dockerconfigjson
+          path: config.json
+  - name: workspace
+    hostPath:
+      path: /workspace
+      type: Directory
+  templates:
+  - name: main
+    steps:
+      - - name: build-and-push
+          template: build-and-push
+          arguments:
+            parameters:
+              - name: image
+                value: "{{item.image}}"
+              - name: context
+                value: "{{item.context}}"
+          withItems:
+            - { image: "mothlk/hello-world-1:0.1.0", context: "/workspace/test/build-src/docker/hello-world-1" }
+            - { image: "mothlk/hello-world-2:0.1.0", context: "/workspace/test/build-src/docker/hello-world-2" }
+
+  - name: build-and-push
+    inputs:
+      parameters:
+        - name: image
+        - name: context
+    container:
+      image: gcr.io/kaniko-project/executor:v1.23.1-debug
+      command: ["/busybox/sh", "-c"]
+      args: 
+        - |
+          cd {{inputs.parameters.context}}
+          executor --context=./ --dockerfile=./Dockerfile --destination="{{inputs.parameters.image}}" --digest-file=/var/digest.txt
+
+          echo "IMAGE_URL: {{inputs.parameters.image}}"
+          echo "IMAGE_DIGEST: `cat /var/digest.txt`"
+      volumeMounts:
+      - name: kaniko-secret
+        mountPath: "/kaniko/.docker"
+      - name: workspace
+        mountPath: /workspace
