@@ -437,7 +437,7 @@ teardown-env: ## Teardown the k3d environment.
 
 .PHONY: stop-env
 stop-env: ## Stop the k3d environment.
-	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}""; then \
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then \
 		if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}.*1/1"; then \
 			echo "${K3D_CLUSTER_NAME} is running in k3d..."; \
 			k3d cluster stop ${K3D_CLUSTER_NAME}; \
