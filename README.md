@@ -23,15 +23,30 @@ will use k3d this requires docker
 make setup-env
 ```
 
-#### Run the controller
+#### Build & deploy the controller locally
 ``` sh
-make run
+make build-and-deploy-controller
 ```
 
 #### Create a sample workflow to reconcile by the controller
 ``` sh
 # run the workflow so controller can reconcile it update status & list the pod names of the workflow
 kubectl create -f test/workflow/build-and-push-docker.yaml
+```
+
+#### remove the controller
+``` sh
+make undeploy
+```
+
+#### stop the environment
+``` sh
+make stop-env
+```
+
+#### start the environment
+``` sh
+make start-env
 ```
 
 #### Clean up environment

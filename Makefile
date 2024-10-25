@@ -321,8 +321,10 @@ catalog-build: opm ## Build a catalog image.
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
 
+K3D_CLUSTER_NAME ?= test-cluster
+
 .PHONY: setup-env
-setup-env: ## Setup the environment for run the controller.
+setup-env: ## Setup the environment with k3d to run the controller.
 	@if ! command -v docker &> /dev/null; then \
 		echo "Docker not found, installing..."; \
 		sudo apt-get update; \
@@ -360,25 +362,25 @@ setup-env: ## Setup the environment for run the controller.
 		echo "Helm is already installed..."; \
 	fi
 
-	@if k3d cluster list | grep -q 'test-cluster'; then \
-		echo "Test-cluster is available in k3d..."; \
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then \
+		echo "${K3D_CLUSTER_NAME} is available in k3d..."; \
 	else \
 		echo "Test cluster not found in k3d, creating..."; \
-		k3d cluster create test-cluster -v "${PWD}:/workspace@agent:*" -v "${PWD}:/workspace@server:*"; \
+		k3d cluster create ${K3D_CLUSTER_NAME} -v "${PWD}:/workspace@agent:*" -v "${PWD}:/workspace@server:*"; \
 	fi
 
-	@if k3d cluster list test-cluster | grep -q '1/1'; then \
-		echo "Test-cluster is running..."; \
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}.*1/1"; then \
+		echo "${K3D_CLUSTER_NAME} is running..."; \
 	else \
-		echo "Test-cluster is not running, starting..."; \
-		k3d cluster start test-cluster; \
+		echo "${K3D_CLUSTER_NAME} is not running, starting..."; \
+		k3d cluster start ${K3D_CLUSTER_NAME}; \
 	fi;
 
-	@if kubectl config current-context | grep -q 'k3d-test-cluster'; then \
-		echo "Context is already set to test-cluster..."; \
+	@if kubectl config current-context | grep -q "k3d-${K3D_CLUSTER_NAME}"; then \
+		echo "Context is already set to ${K3D_CLUSTER_NAME}..."; \
 	else \
-		echo "Setting context to test-cluster..."; \
-		kubectl config use-context k3d-test-cluster; \
+		echo "Setting context to ${K3D_CLUSTER_NAME}..."; \
+		kubectl config use-context k3d-${K3D_CLUSTER_NAME}; \
 	fi
 
 	@if kubectl get deployments -n argo | grep -qE '^argo-argo-workflows-workflow-controller.*1/1|^argo-argo-workflows-server.*1/1'; then \
@@ -425,10 +427,48 @@ setup-env: ## Setup the environment for run the controller.
 	fi
 
 .PHONY: teardown-env
-teardown-env: ## Teardown the environment for run the controller.
-	@if k3d cluster list | grep -q 'test-cluster'; then \
-		echo "Test-cluster is available in k3d..."; \
-		k3d cluster delete test-cluster; \
+teardown-env: ## Teardown the k3d environment.
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then \
+		echo "${K3D_CLUSTER_NAME} is available in k3d..."; \
+		k3d cluster delete ${K3D_CLUSTER_NAME}; \
 	else \
-		echo "Test-cluster is not available in k3d..."; \
+		echo "${K3D_CLUSTER_NAME} is not available in k3d..."; \
 	fi
+
+.PHONY: stop-env
+stop-env: ## Stop the k3d environment.
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}""; then \
+		if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}.*1/1"; then \
+			echo "${K3D_CLUSTER_NAME} is running in k3d..."; \
+			k3d cluster stop ${K3D_CLUSTER_NAME}; \
+		else \
+			echo "${K3D_CLUSTER_NAME} is already stoped..."; \
+		fi; \
+	else \
+		echo "${K3D_CLUSTER_NAME} is not available in k3d..."; \
+		exit 1; \
+	fi
+
+.PHONY: start-env
+start-env: ## Start the k3d environment.
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then \
+		if k3d cluster list ${K3D_CLUSTER_NAME} | grep -q "${K3D_CLUSTER_NAME}.*1/1"; then \
+			echo "${K3D_CLUSTER_NAME} is already running in k3d..."; \
+		else \
+			echo "${K3D_CLUSTER_NAME} is not running in k3d, starting..."; \
+			k3d cluster start ${K3D_CLUSTER_NAME}; \
+		fi; \
+	else \
+		echo "${K3D_CLUSTER_NAME} is not available in k3d..."; \
+		exit 1; \
+	fi
+
+.PHONY: import-image-to-k3d
+import-image-to-k3d: ## Import the controller image to the k3d cluster.
+	k3d image import ${IMG} -c ${K3D_CLUSTER_NAME} -m direct
+
+.PHONY: build-and-deploy-controller
+build-and-deploy-controller: ## Build and deploy the controller to the k3d cluster.
+	$(MAKE) docker-build
+	$(MAKE) import-image-to-k3d
+	$(MAKE) deploy
