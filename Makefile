@@ -321,6 +321,7 @@ catalog-build: opm ## Build a catalog image.
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
 
+##@ Environment
 K3D_CLUSTER_NAME ?= test-cluster
 
 .PHONY: setup-env
@@ -472,3 +473,7 @@ build-and-deploy-controller: ## Build and deploy the controller to the k3d clust
 	$(MAKE) docker-build
 	$(MAKE) import-image-to-k3d
 	$(MAKE) deploy
+
+.PHONY: remove-controller
+remove-controller: ## Remove the controller from the k3d cluster
+	$(MAKE) undeploy

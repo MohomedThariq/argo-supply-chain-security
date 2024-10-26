@@ -34,9 +34,10 @@ make build-and-deploy-controller
 kubectl create -f test/workflow/build-and-push-docker.yaml
 ```
 
+### Aditional commands
 #### remove the controller
 ``` sh
-make undeploy
+make remove-controller
 ```
 
 #### stop the environment
