@@ -44,7 +44,8 @@ const (
 
 //+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list
-//+kubebuilder:rbac:groups="",resources=pods/log,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups="",resources=pods/log,verbs=get;list
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
 
 // update current status in workflow
 func updateWFStatus(r *WorkflowReconciler, ctx context.Context, wf *wfv1alpha1.Workflow, label string, status string) (ctrl.Result, error) {
