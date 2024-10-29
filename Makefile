@@ -320,3 +320,160 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+##@ Environment
+K3D_CLUSTER_NAME ?= test-cluster
+
+.PHONY: setup-env
+setup-env: ## Setup the environment with k3d to run the controller.
+	@if ! command -v docker &> /dev/null; then \
+		echo "Docker not found, installing..."; \
+		sudo apt-get update; \
+		sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common; \
+		curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -; \
+		sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"; \
+		sudo apt-get update; \
+		sudo apt-get install -y docker-ce; \
+		sudo usermod -aG docker $$(whoami); \
+		echo "Docker installed successfully. Please log out and log back in for the changes to take effect."; \
+	else \
+		echo "Docker is already installed..."; \
+	fi
+
+	@if ! command -v k3d &> /dev/null; then \
+		echo "k3d not found, installing..."; \
+		curl -s https://raw.githubusercontent.com/rancher/k3d/main/install.sh | bash; \
+	else \
+		echo "k3d is already installed..."; \
+	fi
+
+	@if ! command -v kubectl &> /dev/null; then \
+		echo "kubectl not found, installing..."; \
+		curl -LO "https://dl.k8s.io/release/$(shell curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"; \
+		chmod +x kubectl; \
+		sudo mv kubectl /usr/local/bin/; \
+	else \
+		echo "kubectl is already installed..."; \
+	fi
+
+	@if ! command -v helm &> /dev/null; then \
+		echo "Helm not found, installing..."; \
+		curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; \
+	else \
+		echo "Helm is already installed..."; \
+	fi
+
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then \
+		echo "${K3D_CLUSTER_NAME} is available in k3d..."; \
+	else \
+		echo "Test cluster not found in k3d, creating..."; \
+		k3d cluster create ${K3D_CLUSTER_NAME} -v "${PWD}:/workspace@agent:*" -v "${PWD}:/workspace@server:*"; \
+	fi
+
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}.*1/1"; then \
+		echo "${K3D_CLUSTER_NAME} is running..."; \
+	else \
+		echo "${K3D_CLUSTER_NAME} is not running, starting..."; \
+		k3d cluster start ${K3D_CLUSTER_NAME}; \
+	fi;
+
+	@if kubectl config current-context | grep -q "k3d-${K3D_CLUSTER_NAME}"; then \
+		echo "Context is already set to ${K3D_CLUSTER_NAME}..."; \
+	else \
+		echo "Setting context to ${K3D_CLUSTER_NAME}..."; \
+		kubectl config use-context k3d-${K3D_CLUSTER_NAME}; \
+	fi
+
+	@if kubectl get deployments -n argo | grep -qE '^argo-argo-workflows-workflow-controller.*1/1|^argo-argo-workflows-server.*1/1'; then \
+		echo "Argo Workflows is already running in the argo namespace..."; \
+	else \
+		echo "Argo Workflows is not running in the argo namespace..."; \
+		helm repo add argo https://argoproj.github.io/argo-helm; \
+		helm repo update; \
+		helm install argo argo/argo-workflows -n argo --create-namespace; \
+		while true; do \
+			if kubectl get deployments -n argo | grep -qE '^argo-argo-workflows-workflow-controller.*1/1|^argo-argo-workflows-server.*1/1'; then \
+				echo "Argo Workflows is running in the argo namespace..."; \
+				break; \
+			else \
+				echo "Waiting for Argo Workflows to be running in the argo namespace..."; \
+				sleep 5; \
+			fi; \
+		done; \
+	fi
+
+	@if kubectl get ns | grep -q 'argo-slsa'; then \
+		echo "Namespace argo-slsa is already available..."; \
+		kubectl config set-context --current --namespace=argo-slsa; \
+	else \
+		echo "Creating namespace argo-slsa..."; \
+		kubectl create ns argo-slsa; \
+		kubectl config set-context --current --namespace=argo-slsa; \
+	fi
+
+	@if kubectl get role argo-workflow-role -n argo-slsa &> /dev/null && kubectl get rolebinding argo-workflow-rolebinding -n argo-slsa &> /dev/null; then \
+		echo "Role and Rolebinding for Argo Workflows are already available in the argo-slsa namespace..."; \
+	else \
+		echo "Creating Role and Rolebinding for Argo Workflows in the argo-slsa namespace..."; \
+		kubectl apply -f test/workflow/rbac/workflows-rbac.yaml; \
+	fi
+
+	@if kubectl get secret docker-hub-credentials &> /dev/null; then \
+		echo "Secret docker-hub-credentials is already available..."; \
+	else \
+		echo "Creating secret docker-hub-credentials..."; \
+		read -p "Enter Docker Hub Username: " DOCKER_USERNAME; \
+		read -s -p "Enter Docker Hub Password: " DOCKER_PASSWORD; \
+		kubectl create secret docker-registry docker-hub-credentials --docker-server=https://index.docker.io/v1/ --docker-username=$$DOCKER_USERNAME --docker-password=$$DOCKER_PASSWORD; \
+	fi
+
+.PHONY: teardown-env
+teardown-env: ## Teardown the k3d environment.
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then \
+		echo "${K3D_CLUSTER_NAME} is available in k3d..."; \
+		k3d cluster delete ${K3D_CLUSTER_NAME}; \
+	else \
+		echo "${K3D_CLUSTER_NAME} is not available in k3d..."; \
+	fi
+
+.PHONY: stop-env
+stop-env: ## Stop the k3d environment.
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then \
+		if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}.*1/1"; then \
+			echo "${K3D_CLUSTER_NAME} is running in k3d..."; \
+			k3d cluster stop ${K3D_CLUSTER_NAME}; \
+		else \
+			echo "${K3D_CLUSTER_NAME} is already stoped..."; \
+		fi; \
+	else \
+		echo "${K3D_CLUSTER_NAME} is not available in k3d..."; \
+		exit 1; \
+	fi
+
+.PHONY: start-env
+start-env: ## Start the k3d environment.
+	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}"; then \
+		if k3d cluster list ${K3D_CLUSTER_NAME} | grep -q "${K3D_CLUSTER_NAME}.*1/1"; then \
+			echo "${K3D_CLUSTER_NAME} is already running in k3d..."; \
+		else \
+			echo "${K3D_CLUSTER_NAME} is not running in k3d, starting..."; \
+			k3d cluster start ${K3D_CLUSTER_NAME}; \
+		fi; \
+	else \
+		echo "${K3D_CLUSTER_NAME} is not available in k3d..."; \
+		exit 1; \
+	fi
+
+.PHONY: import-image-to-k3d
+import-image-to-k3d: ## Import the controller image to the k3d cluster.
+	k3d image import ${IMG} -c ${K3D_CLUSTER_NAME} -m direct
+
+.PHONY: build-and-deploy-controller
+build-and-deploy-controller: ## Build and deploy the controller to the k3d cluster.
+	$(MAKE) docker-build
+	$(MAKE) import-image-to-k3d
+	$(MAKE) deploy
+
+.PHONY: remove-controller
+remove-controller: ## Remove the controller from the k3d cluster
+	$(MAKE) undeploy
