@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: chains-config
+  name: config
   namespace: system
   labels:
     control-plane: controller-manager

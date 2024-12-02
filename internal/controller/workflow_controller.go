@@ -46,7 +46,7 @@ type Reconciler struct {
 const (
 	enableAnnotation string = "argo.slsa.io/enable"
 	statusLabel      string = "argo.slsa.io/status"
-	configMapName    string = "argo-supply-chain-security-chains-config"
+	configMapName    string = "argo-slsa-config"
 )
 
 //+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;update;patch
