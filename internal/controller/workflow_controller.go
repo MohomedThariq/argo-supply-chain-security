@@ -60,7 +60,12 @@ const (
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	config, err := r.getConfigMap(ctx, configMapName, req.Namespace)
+	controllerNamespace, err := getCurrentNamespace()
+	if err != nil {
+		return ctrl.Result{Requeue: true}, err
+	}
+
+	config, err := r.getConfigMap(ctx, configMapName, controllerNamespace)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Error(err, "unable to fetch config map")
@@ -69,7 +74,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	fmt.Println(config)
+	// TODO: remove later
+	logger.Info("ConfigMap data fetched successfully", "data", config)
 
 	// get workflow resource
 	var workflow wfv1alpha1.Workflow
@@ -173,6 +179,9 @@ func (r *Reconciler) getConfigMap(ctx context.Context, name string, namespace st
 	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, configMap)
 	if err != nil {
 		return nil, err
+	}
+	if configMap.Data == nil {
+		configMap.Data = make(map[string]string)
 	}
 	return configMap.Data, nil
 }
