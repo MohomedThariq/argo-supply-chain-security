@@ -375,6 +375,7 @@ setup-env: ## Setup the environment with k3d to run the controller.
 	else \
 		echo "${K3D_CLUSTER_NAME} is not running, starting..."; \
 		k3d cluster start ${K3D_CLUSTER_NAME}; \
+		sleep 20; \
 	fi;
 
 	@if kubectl config current-context | grep -q "k3d-${K3D_CLUSTER_NAME}"; then \

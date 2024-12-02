@@ -60,14 +60,16 @@ const (
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	_, err := r.getConfigMap(ctx, configMapName, req.Namespace)
+	config, err := r.getConfigMap(ctx, configMapName, req.Namespace)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			message := fmt.Sprintln(err, configMapName, "config map not found")
-			panic(message)
+			logger.Error(err, "unable to fetch config map")
+			return ctrl.Result{Requeue: true}, nil
 		}
 		return ctrl.Result{}, err
 	}
+
+	fmt.Println(config)
 
 	// get workflow resource
 	var workflow wfv1alpha1.Workflow
@@ -93,7 +95,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// check if enabled & start securing the supply chain
 	if isEnabled {
 		if !labelIsPresent {
-			return r.updateWFStatus(ctx, &workflow, statusLabel, "in-progress")
+			if err := r.updateWFStatus(ctx, &workflow, statusLabel, "in-progress"); err != nil {
+				if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+					return ctrl.Result{Requeue: true}, nil
+				} else {
+					logger.Error(err, "unable to update workflow status")
+					return ctrl.Result{}, nil
+				}
+			}
 		} else if status == "completed" || status == "error" {
 			// process is already completed or failed
 			return ctrl.Result{}, nil
@@ -130,29 +139,33 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// 		sign and upload the sbom to the registry
 
 	// set the status to completed
-	return r.updateWFStatus(ctx, &workflow, statusLabel, "completed")
+	if err := r.updateWFStatus(ctx, &workflow, statusLabel, "completed"); err != nil {
+		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+			return ctrl.Result{Requeue: true}, nil
+		} else {
+			logger.Error(err, "unable to update workflow status")
+		}
+	}
+
+	return ctrl.Result{}, nil
 }
 
 // update current status in workflow
-func (r *Reconciler) updateWFStatus(ctx context.Context, wf *wfv1alpha1.Workflow, label string, status string) (ctrl.Result, error) {
+func (r *Reconciler) updateWFStatus(ctx context.Context, wf *wfv1alpha1.Workflow, label string, status string) error {
 	logger := log.FromContext(ctx)
 
 	if wf.Labels == nil {
 		wf.Labels = make(map[string]string)
 	} else if wf.Labels[label] == status {
 		// ignore update if status is same
-		return ctrl.Result{}, nil
+		return nil
 	}
 	wf.Labels[label] = status
 	if err := r.Update(ctx, wf); err != nil {
-		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
-			return ctrl.Result{Requeue: true}, nil
-		}
-		logger.Error(err, "unable to update workflow status")
-		return ctrl.Result{}, err
+		return err
 	}
 	logger.Info("Workflow status updated", "status", status)
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (r *Reconciler) getConfigMap(ctx context.Context, name string, namespace string) (map[string]string, error) {
