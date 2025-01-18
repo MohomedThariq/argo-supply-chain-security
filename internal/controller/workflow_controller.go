@@ -54,6 +54,8 @@ const (
 	reconcileInProgrees      string = "In-Progress"
 	reconcileCompleted       string = "Completed"
 	reconcileError           string = "Error"
+
+	conflictOrNotFoundError = "conflict or not found"
 )
 
 //+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;patch
@@ -67,7 +69,7 @@ const (
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	controllerNamespace, err := getCurrentNamespace()
+	controllerNamespace, err := getCurrentNamespaceFunc()
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -98,7 +100,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return ctrl.Result{}, nil
 		}
 		if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileInProgrees); err != nil {
-			if err.Error() == "conflict or not found" {
+			if err.Error() == conflictOrNotFoundError {
 				return ctrl.Result{Requeue: true}, nil
 			} else {
 				logger.Error(err, "unable to update workflow status")
@@ -120,7 +122,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if err.Error() == "not all workflow pods have been reconciled" {
 			logger.Info("Waiting for tasks to execute", "workflow", workflow.Name)
 			return ctrl.Result{RequeueAfter: time.Second * 10}, nil
-		} else if err.Error() == "conflict or not found" {
+		} else if err.Error() == conflictOrNotFoundError {
 			return ctrl.Result{Requeue: true}, nil
 		}
 		logger.Error(err, "failed to reconcile pods")
@@ -131,7 +133,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	// set the status to completed
 	if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileCompleted); err != nil {
-		if err.Error() == "conflict or not found" {
+		if err.Error() == conflictOrNotFoundError {
 			return ctrl.Result{Requeue: true}, nil
 		} else {
 			logger.Error(err, "unable to update workflow status")
@@ -152,6 +154,8 @@ func (r *Reconciler) getConfigMap(ctx context.Context, name string, namespace st
 	}
 	return configMap.Data, nil
 }
+
+var getCurrentNamespaceFunc = getCurrentNamespace
 
 func getCurrentNamespace() (string, error) {
 	namespaceFile := filepath.Join("/var/run/secrets/kubernetes.io/serviceaccount", "namespace")
@@ -180,7 +184,7 @@ func checkConfigMapExists(ctx context.Context, name string, namespace string) er
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	namespace, err := getCurrentNamespace()
+	namespace, err := getCurrentNamespaceFunc()
 	if err != nil {
 		panic(err)
 	}

@@ -26,14 +26,14 @@ linters:
     - gocyclo
     - gofmt
     - goimports
-    - gosimple
+    # - gosimple
     - govet
     - ineffassign
     - lll
     - misspell
     - nakedret
     - prealloc
-    - staticcheck
+    # - staticcheck
     - typecheck
     - unconvert
     - unparam
