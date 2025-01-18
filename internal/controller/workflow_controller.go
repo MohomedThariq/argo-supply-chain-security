@@ -44,15 +44,16 @@ type Reconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// Supply chain security annotations & labels const
 const (
-	enableAnnotation string = "argo.slsa.io/enable"
+	configMapName string = "argo-slsa-config"
 
-	statusLabel         string = "argo.slsa.io/status"
-	configMapName       string = "argo-slsa-config"
-	reconcileInProgrees string = "In-Progress"
-	reconcileCompleted  string = "Completed"
-	reconcileError      string = "Error"
+	enableAnnotation string = "argo.slsa.io/enable"
+	featureEnabled   string = "true"
+
+	WorkflowStatusAnnotation string = "argo.slsa.io/status"
+	reconcileInProgrees      string = "In-Progress"
+	reconcileCompleted       string = "Completed"
+	reconcileError           string = "Error"
 )
 
 //+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;patch
@@ -87,8 +88,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	// start securing the supply chain if enabled
-	isEnabled := workflow.Annotations[enableAnnotation] == "true"
-	status, AnnotationsIsPresent := workflow.Annotations[statusLabel]
+	isEnabled := workflow.Annotations[enableAnnotation] == featureEnabled
+	status, AnnotationsIsPresent := workflow.Annotations[WorkflowStatusAnnotation]
 
 	// check if enabled & start securing the supply chain
 	if isEnabled {
@@ -96,7 +97,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			// process is already completed
 			return ctrl.Result{}, nil
 		}
-		if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, statusLabel, reconcileInProgrees); err != nil {
+		if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileInProgrees); err != nil {
 			if err.Error() == "conflict or not found" {
 				return ctrl.Result{Requeue: true}, nil
 			} else {
@@ -129,7 +130,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// TODO: attach slsa attestation for the artifacts
 
 	// set the status to completed
-	if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, statusLabel, reconcileCompleted); err != nil {
+	if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileCompleted); err != nil {
 		if err.Error() == "conflict or not found" {
 			return ctrl.Result{Requeue: true}, nil
 		} else {
