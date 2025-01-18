@@ -41,117 +41,182 @@ type PodStatus struct {
 type WorkflowPodsStatus []PodStatus
 
 func (wfps *WorkflowPodsStatus) GetPodInfo(workflow *wfv1alpha1.Workflow) error {
-	for _, node := range workflow.Status.Nodes {
-		if node.Type == "Pod" {
-			Id := strings.TrimPrefix(node.ID, workflow.Name+"-")
-			podName := fmt.Sprintf("%s-%s-%s", workflow.Name, node.TemplateName, Id)
-			*wfps = append(*wfps, PodStatus{PodName: podName, Status: node.Phase})
-		}
-	}
-
-	if len(*wfps) == 0 {
+	if len(workflow.Status.Nodes) == 0 {
 		return errors.New("no pods found in the workflow")
 	}
 
+	var pods []PodStatus
+	for _, node := range workflow.Status.Nodes {
+		if node.Type == "Pod" {
+			pods = append(pods, PodStatus{
+				PodName: formatPodName(workflow.Name, node.TemplateName, node.ID),
+				Status:  node.Phase,
+			})
+		}
+	}
+
+	if len(pods) == 0 {
+		return errors.New("no pods found in the workflow")
+	}
+
+	*wfps = pods
 	return nil
+}
+
+func formatPodName(workflowName, templateName, nodeID string) string {
+	return fmt.Sprintf("%s-%s-%s",
+		workflowName,
+		templateName,
+		strings.TrimPrefix(nodeID, workflowName+"-"),
+	)
 }
 
 func (wfps *WorkflowPodsStatus) Reconcile(ctx context.Context, k8sClient client.Client, namespace string) error {
 	for i := range *wfps {
-		pod := &corev1.Pod{}
-		if (*wfps)[i].Status == wfv1alpha1.NodeSkipped || (*wfps)[i].Status == wfv1alpha1.NodeOmitted {
-			// in this case there won't be a pod to update status
-			(*wfps)[i].Reconciliation = true
-		} else if (*wfps)[i].Status == wfv1alpha1.NodeSucceeded || (*wfps)[i].Status == wfv1alpha1.NodeFailed || (*wfps)[i].Status == wfv1alpha1.NodeError {
-			if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: (*wfps)[i].PodName}, pod); err != nil {
-				return err
-			}
-
-			status, podStatusAnnotationIsPresent := pod.Annotations[podStatusAnnotation]
-			artifactsInfo, artifactsAnnotationIsPresent := pod.Annotations[artifactsAnnotation]
-			signedStatus, signedAnnotationIsPresent := pod.Annotations[signedAnnotation]
-
-			if !podStatusAnnotationIsPresent || status == reconciliationInProgerss {
-				if (*wfps)[i].Status == wfv1alpha1.NodeError {
-					// in this case pod has exited with a non 0 exit code so need to skip this
-					if err := annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationSkipped); err != nil {
-						return err
-					}
-					(*wfps)[i].Reconciliation = true
-				} else {
-					// when node success or a child node has failed
-					if pod.Status.Phase == corev1.PodSucceeded {
-						// start reconcilation
-						if err := annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationInProgerss); err != nil {
-							return err
-						}
-
-						if !artifactsAnnotationIsPresent {
-							// TODO: logic to read the logs & get the artifat names. maybe also an artifact type
-							artifactsInfo = artifactsNotFound
-							(*wfps)[i].ArtifactsFound = false
-
-							if err := annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, artifactsAnnotation, artifactsInfo); err != nil {
-								return err
-							}
-						} else if artifactsInfo != artifactsNotFound {
-							(*wfps)[i].ArtifactsFound = true
-						}
-
-						if (*wfps)[i].ArtifactsFound {
-							if !signedAnnotationIsPresent {
-								// TODO: artifact signing also generate SBOMs for supported artifacts
-								signingStatus := signingCompleted
-								(*wfps)[i].Signed = true
-
-								if err := annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, signedAnnotation, signingStatus); err != nil {
-									return err
-								}
-							} else if signedStatus == signingCompleted {
-								(*wfps)[i].Signed = true
-							}
-						} else if !(*wfps)[i].ArtifactsFound {
-							if err := annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, signedAnnotation, signingSkipped); err != nil {
-								return err
-							}
-						}
-
-						if (*wfps)[i].ArtifactsFound {
-							if (*wfps)[i].Signed {
-								if err := annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationCompleted); err != nil {
-									return err
-								}
-							} else {
-								if err := annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationError); err != nil {
-									return err
-								}
-							}
-						} else {
-							if err := annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationSkipped); err != nil {
-								return err
-							}
-						}
-						(*wfps)[i].Reconciliation = true
-					} else {
-						// node completed but if the pod in in a different state
-						if err := annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationSkipped); err != nil {
-							return err
-						}
-						(*wfps)[i].Reconciliation = true
-					}
-				}
-			} else {
-				// pod reconcilation has already completed
-				(*wfps)[i].Reconciliation = true
-			}
+		podStatus := &(*wfps)[i]
+		if err := wfps.reconcilePod(ctx, k8sClient, namespace, podStatus); err != nil {
+			return err
 		}
 	}
 
+	return wfps.validateAllPodsReconciled()
+}
+
+func (wfps *WorkflowPodsStatus) reconcilePod(ctx context.Context, k8sClient client.Client, namespace string, podStatus *PodStatus) error {
+	if wfps.isSkippedOrOmittedNode(podStatus) {
+		// skipeed or omitted nodes will not have a pod associated with them to reconcile
+		podStatus.Reconciliation = true
+		return nil
+	} else if !wfps.inKnownState(podStatus) {
+		// in case of an unknown state, cannot proceed with reconciliation
+		unknownPodStateError := fmt.Sprint(podStatus.PodName, "is in an unknown node state: ", podStatus.Status)
+		return errors.New(unknownPodStateError)
+	}
+
+	pod, err := wfps.getPod(ctx, k8sClient, namespace, podStatus.PodName)
+	if err != nil {
+		return err
+	}
+
+	if wfps.isAlreadyReconciled(pod) {
+		podStatus.Reconciliation = true
+		return nil
+	}
+
+	return wfps.handlePodReconciliation(ctx, k8sClient, pod, podStatus)
+}
+
+func (wfps *WorkflowPodsStatus) handlePodReconciliation(ctx context.Context, k8sClient client.Client, pod *corev1.Pod, podStatus *PodStatus) error {
+	// in this case pod has exited with a non 0 exit code so need to skip this
+	if podStatus.Status == wfv1alpha1.NodeError {
+		return wfps.markPodAsSkipped(ctx, k8sClient, pod, podStatus)
+	}
+
+	// node completed but if the pod is not in succeeded state, then skip this
+	if pod.Status.Phase != corev1.PodSucceeded {
+		return wfps.markPodAsSkipped(ctx, k8sClient, pod, podStatus)
+	}
+
+	if err := annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationInProgerss); err != nil {
+		return err
+	}
+
+	// extract artifact information & update the pod annotations
+	if err := wfps.handleArtifactInfo(ctx, k8sClient, pod, podStatus); err != nil {
+		return err
+	}
+
+	// sign the artifacts if found
+	if err := wfps.handleArtifactSigning(ctx, k8sClient, pod, podStatus); err != nil {
+		return err
+	}
+
+	return wfps.updateFinalStatus(ctx, k8sClient, pod, podStatus)
+}
+
+func (wfps *WorkflowPodsStatus) handleArtifactInfo(ctx context.Context, k8sClient client.Client, pod *corev1.Pod, podStatus *PodStatus) error {
+	if _, exists := pod.Annotations[artifactsAnnotation]; !exists {
+		// TODO: logic to read the logs & get the artifat names. maybe also an artifact type
+		status := false                   // TODO: set to false for now until the logic is implemented
+		artifactInfo := artifactsNotFound // TODO: set to "No-Artifacts-Found" for now until the logic is implemented
+
+		podStatus.ArtifactsFound = status
+		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, artifactsAnnotation, artifactInfo)
+	}
+
+	podStatus.ArtifactsFound = pod.Annotations[artifactsAnnotation] != artifactsNotFound
+	return nil
+}
+
+func (wfps *WorkflowPodsStatus) handleArtifactSigning(ctx context.Context, k8sClient client.Client, pod *corev1.Pod, podStatus *PodStatus) error {
+	if !podStatus.ArtifactsFound {
+		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, signedAnnotation, signingSkipped)
+	}
+
+	if _, exists := pod.Annotations[signedAnnotation]; !exists {
+		// TODO: artifact signing also generate SBOMs for supported artifacts
+		status := false                // TODO: set to false for now until the logic is implemented
+		signingState := signingSkipped // TODO: set to "Skipped" for now until the logic is implemented
+
+		podStatus.Signed = status
+		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, signedAnnotation, signingState)
+	}
+
+	podStatus.Signed = pod.Annotations[signedAnnotation] == signingCompleted
+	return nil
+}
+
+func (wfps *WorkflowPodsStatus) isSkippedOrOmittedNode(podStatus *PodStatus) bool {
+	return podStatus.Status == wfv1alpha1.NodeSkipped || podStatus.Status == wfv1alpha1.NodeOmitted
+}
+
+func (wfps *WorkflowPodsStatus) inKnownState(podStatus *PodStatus) bool {
+	return podStatus.Status == wfv1alpha1.NodeSucceeded ||
+		podStatus.Status == wfv1alpha1.NodeFailed ||
+		podStatus.Status == wfv1alpha1.NodeError
+}
+
+func (wfps *WorkflowPodsStatus) getPod(ctx context.Context, k8sClient client.Client, namespace string, podName string) (*corev1.Pod, error) {
+	var pod corev1.Pod
+	err := k8sClient.Get(ctx, client.ObjectKey{
+		Namespace: namespace,
+		Name:      podName,
+	}, &pod)
+	return &pod, err
+}
+
+func (wfps *WorkflowPodsStatus) isAlreadyReconciled(pod *corev1.Pod) bool {
+	status, exists := pod.Annotations[podStatusAnnotation]
+	return exists && status != reconciliationInProgerss
+}
+
+func (wfps *WorkflowPodsStatus) markPodAsSkipped(ctx context.Context, k8sClient client.Client, pod *corev1.Pod, podStatus *PodStatus) error {
+	podStatus.Reconciliation = true
+	return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationSkipped)
+}
+
+func (wfps *WorkflowPodsStatus) updateFinalStatus(ctx context.Context, k8sClient client.Client, pod *corev1.Pod, podStatus *PodStatus) error {
+	podStatus.Reconciliation = true
+
+	// if no artifacts found signing is skipped
+	if !podStatus.ArtifactsFound {
+		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationSkipped)
+	}
+
+	// when artifacts are found & signed
+	if podStatus.Signed {
+		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationCompleted)
+	}
+
+	// when artifacts are found but not signed
+	return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationError)
+}
+
+func (wfps *WorkflowPodsStatus) validateAllPodsReconciled() error {
 	for _, workflowPod := range *wfps {
 		if !workflowPod.Reconciliation {
 			return errors.New("not all workflow pods have been reconciled")
 		}
 	}
-
 	return nil
 }

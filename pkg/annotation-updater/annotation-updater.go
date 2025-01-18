@@ -18,8 +18,6 @@ func PatchAnnotations(ctx context.Context, k8sClient client.Client, r client.Obj
 	annotationInfo, annotationExists := annotations[label]
 	if annotationExists && annotationInfo == info {
 		return nil
-	} else if !annotationExists {
-		annotations = make(map[string]string)
 	}
 	annotations[label] = info
 	r.SetAnnotations(annotations)
