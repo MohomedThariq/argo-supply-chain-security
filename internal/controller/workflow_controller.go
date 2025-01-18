@@ -94,7 +94,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// check if enabled & start securing the supply chain
 	if isEnabled {
 		if AnnotationsIsPresent && (status == reconcileCompleted || status == reconcileError) {
-			// process is already completed
+			logger.Info("Workflow reconciled")
 			return ctrl.Result{}, nil
 		}
 		if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileInProgrees); err != nil {
@@ -124,7 +124,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return ctrl.Result{Requeue: true}, nil
 		}
 		logger.Error(err, "failed to reconcile pods")
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 
 	// TODO: attach slsa attestation for the artifacts

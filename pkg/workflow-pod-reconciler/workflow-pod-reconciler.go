@@ -93,6 +93,10 @@ func (wfps *WorkflowPodsStatus) reconcilePod(ctx context.Context, k8sClient clie
 		return errors.New(unknownPodStateError)
 	}
 
+	if podStatus.Status == wfv1alpha1.NodeRunning || podStatus.Status == wfv1alpha1.NodePending {
+		return nil
+	}
+
 	pod, err := wfps.getPod(ctx, k8sClient, namespace, podStatus.PodName)
 	if err != nil {
 		return err
@@ -173,7 +177,9 @@ func (wfps *WorkflowPodsStatus) isSkippedOrOmittedNode(podStatus *PodStatus) boo
 func (wfps *WorkflowPodsStatus) inKnownState(podStatus *PodStatus) bool {
 	return podStatus.Status == wfv1alpha1.NodeSucceeded ||
 		podStatus.Status == wfv1alpha1.NodeFailed ||
-		podStatus.Status == wfv1alpha1.NodeError
+		podStatus.Status == wfv1alpha1.NodeError ||
+		podStatus.Status == wfv1alpha1.NodePending ||
+		podStatus.Status == wfv1alpha1.NodeRunning
 }
 
 func (wfps *WorkflowPodsStatus) getPod(ctx context.Context, k8sClient client.Client, namespace string, podName string) (*corev1.Pod, error) {
