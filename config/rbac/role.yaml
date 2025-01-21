@@ -20,7 +20,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - ""
@@ -44,5 +43,4 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch

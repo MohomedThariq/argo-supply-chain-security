@@ -21,38 +21,49 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-
-	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	annotationUpdater "github.com/MohomedThariq/argo-supply-chain-security/pkg/annotation-updater"
+	wfpr "github.com/MohomedThariq/argo-supply-chain-security/pkg/workflow-pod-reconciler"
 )
 
+// Reconciler reconciles a Workflow object
+type Reconciler struct {
 // Reconciler reconciles a Workflow object
 type Reconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// Supply chain security annotations & labels const
 const (
+	configMapName string = "argo-slsa-config"
+
 	enableAnnotation string = "argo.slsa.io/enable"
-	statusLabel      string = "argo.slsa.io/status"
-	configMapName    string = "argo-slsa-config"
+	featureEnabled   string = "true"
+
+	WorkflowStatusAnnotation string = "argo.slsa.io/status"
+	reconcileInProgrees      string = "In-Progress"
+	reconcileCompleted       string = "Completed"
+	reconcileError           string = "Error"
+
+	conflictOrNotFoundError = "conflict or not found"
 )
 
-//+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;patch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list
 //+kubebuilder:rbac:groups="",resources=pods/log,verbs=get;list
-//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;patch
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -60,22 +71,14 @@ const (
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	controllerNamespace, err := getCurrentNamespace()
+	controllerNamespace, err := getCurrentNamespaceFunc()
 	if err != nil {
-		return ctrl.Result{Requeue: true}, err
-	}
-
-	config, err := r.getConfigMap(ctx, configMapName, controllerNamespace)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Error(err, "unable to fetch config map")
-			return ctrl.Result{Requeue: true}, nil
-		}
 		return ctrl.Result{}, err
 	}
 
-	// TODO: remove later
-	logger.Info("ConfigMap data fetched successfully", "data", config)
+	if _, err := r.getConfigMap(ctx, configMapName, controllerNamespace); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	// get workflow resource
 	var workflow wfv1alpha1.Workflow
@@ -88,96 +91,64 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	// if workflow is still running requeue
-	// FIX_ME: this should not be done. should reconcile while running as well
-	if workflow.Status.Phase != "Succeeded" && workflow.Status.Phase != "Failed" {
-		return ctrl.Result{Requeue: true}, nil
-	}
-
 	// start securing the supply chain if enabled
-	isEnabled := workflow.Annotations[enableAnnotation] == "true"
-	status, labelIsPresent := workflow.Labels[statusLabel]
+	isEnabled := workflow.Annotations[enableAnnotation] == featureEnabled
+	status, AnnotationsIsPresent := workflow.Annotations[WorkflowStatusAnnotation]
 
 	// check if enabled & start securing the supply chain
 	if isEnabled {
-		if !labelIsPresent {
-			if err := r.updateWFStatus(ctx, &workflow, statusLabel, "in-progress"); err != nil {
-				if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
-					return ctrl.Result{Requeue: true}, nil
-				} else {
-					logger.Error(err, "unable to update workflow status")
-					return ctrl.Result{}, nil
-				}
-			}
-		} else if status == "completed" || status == "error" {
-			// process is already completed or failed
+		if AnnotationsIsPresent && (status == reconcileCompleted || status == reconcileError) {
+			logger.Info("Workflow reconciled")
 			return ctrl.Result{}, nil
 		}
+		if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileInProgrees); err != nil {
+			if err.Error() == conflictOrNotFoundError {
+				return ctrl.Result{Requeue: true}, nil
+			} else {
+				logger.Error(err, "unable to update workflow status")
+			}
+		}
 	} else {
-		logger.Info("Not enabled ignoring workflow")
+		logger.Info("Not enabled ignoring workflow", "workflow", workflow.Name)
 		return ctrl.Result{}, nil
 	}
 
 	// get pod names associated with the workflow
-	podList := &corev1.PodList{}
-	labelSelector := client.MatchingLabels{"workflows.argoproj.io/workflow": workflow.Name}
-	if err := r.List(ctx, podList, client.InNamespace(req.Namespace), labelSelector); err != nil {
-		logger.Error(err, "unable to list pods for the workflow", "workflow", workflow.Name)
+	var pods wfpr.WorkflowPodsStatus
+	if err := pods.GetPodInfo(&workflow); err != nil {
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// reconcile the pods
+	if err := pods.Reconcile(ctx, r.Client, workflow.Namespace); err != nil {
+		if err.Error() == "not all workflow pods have been reconciled" {
+			logger.Info("Waiting for tasks to execute", "workflow", workflow.Name)
+			return ctrl.Result{RequeueAfter: time.Second * 10}, nil
+		} else if err.Error() == conflictOrNotFoundError {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		logger.Error(err, "failed to reconcile pods")
 		return ctrl.Result{}, err
 	}
 
-	for _, pod := range podList.Items {
-		logger.Info("Pod name", "podName", pod.Name)
-	}
-
-	// NEXT_STEPS:
-	// 		read the logs & get the image namescec
-	// 		maintain state on pods in pod level
-	// 				argo.slsa.io/status: in-progress
-	// 				argo.slsa.io/status: completed
-	// 				argo.slsa.io/status: error
-	// 				argo.slsa.io/status: no-artifacts-to-sign
-	// 		signing the images
-	// 		uploading the signatures to the registry
-	// 		attestation for the images
-	// 		sign and upload the attestation to the registry
-	// 		sbom generation for the images
-	// 		sign and upload the sbom to the registry
+	// TODO: attach slsa attestation for the artifacts
 
 	// set the status to completed
-	if err := r.updateWFStatus(ctx, &workflow, statusLabel, "completed"); err != nil {
-		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+	if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileCompleted); err != nil {
+		if err.Error() == conflictOrNotFoundError {
 			return ctrl.Result{Requeue: true}, nil
 		} else {
 			logger.Error(err, "unable to update workflow status")
 		}
 	}
 
+	logger.Info("Workflow secured successfully", "workflow", workflow.Name)
 	return ctrl.Result{}, nil
-}
-
-// update current status in workflow
-func (r *Reconciler) updateWFStatus(ctx context.Context, wf *wfv1alpha1.Workflow, label string, status string) error {
-	logger := log.FromContext(ctx)
-
-	if wf.Labels == nil {
-		wf.Labels = make(map[string]string)
-	} else if wf.Labels[label] == status {
-		// ignore update if status is same
-		return nil
-	}
-	wf.Labels[label] = status
-	if err := r.Update(ctx, wf); err != nil {
-		return err
-	}
-	logger.Info("Workflow status updated", "status", status)
-	return nil
 }
 
 func (r *Reconciler) getConfigMap(ctx context.Context, name string, namespace string) (map[string]string, error) {
 	configMap := &corev1.ConfigMap{}
-	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, configMap)
-	if err != nil {
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, configMap); err != nil {
 		return nil, err
 	}
 	if configMap.Data == nil {
@@ -185,6 +156,8 @@ func (r *Reconciler) getConfigMap(ctx context.Context, name string, namespace st
 	}
 	return configMap.Data, nil
 }
+
+var getCurrentNamespaceFunc = getCurrentNamespace
 
 func getCurrentNamespace() (string, error) {
 	namespaceFile := filepath.Join("/var/run/secrets/kubernetes.io/serviceaccount", "namespace")
@@ -213,7 +186,7 @@ func checkConfigMapExists(ctx context.Context, name string, namespace string) er
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	namespace, err := getCurrentNamespace()
+	namespace, err := getCurrentNamespaceFunc()
 	if err != nil {
 		panic(err)
 	}

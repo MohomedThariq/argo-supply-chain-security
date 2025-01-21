@@ -1,0 +1,44 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+    createdAt: "2025-01-18T15:34:01Z"
+    operators.operatorframework.io/builder: operator-sdk-v1.36.0+git
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
+  name: argo-supply-chain-security.v0.0.1
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions: {}
+  description: Provide supply chain security to artifacts built with argo workflows
+  displayName: argo-slsa
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: []
+    strategy: deployment
+  installModes:
+  - supported: false
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - DevSecOps
+  links:
+  - name: Argo Supply Chain Security
+    url: https://argo-supply-chain-security.domain
+  maintainers:
+  - email: 1234thariq@gmail.com
+    name: MohomedThariq
+  maturity: alpha
+  provider:
+    name: Mohomed Thariq
+  version: 0.0.1
