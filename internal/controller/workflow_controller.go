@@ -40,6 +40,8 @@ import (
 
 // Reconciler reconciles a Workflow object
 type Reconciler struct {
+// Reconciler reconciles a Workflow object
+type Reconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
