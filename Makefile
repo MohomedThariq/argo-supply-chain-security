@@ -375,6 +375,7 @@ setup-env: ## Setup the environment with k3d to run the controller.
 	else \
 		echo "${K3D_CLUSTER_NAME} is not running, starting..."; \
 		k3d cluster start ${K3D_CLUSTER_NAME}; \
+		sleep 20; \
 	fi;
 
 	@if kubectl config current-context | grep -q "k3d-${K3D_CLUSTER_NAME}"; then \
@@ -402,19 +403,19 @@ setup-env: ## Setup the environment with k3d to run the controller.
 		done; \
 	fi
 
-	@if kubectl get ns | grep -q 'argo-slsa'; then \
-		echo "Namespace argo-slsa is already available..."; \
-		kubectl config set-context --current --namespace=argo-slsa; \
+	@if kubectl get ns | grep -q 'test'; then \
+		echo "Namespace test is already available..."; \
+		kubectl config set-context --current --namespace=test; \
 	else \
-		echo "Creating namespace argo-slsa..."; \
-		kubectl create ns argo-slsa; \
-		kubectl config set-context --current --namespace=argo-slsa; \
+		echo "Creating namespace test..."; \
+		kubectl create ns test; \
+		kubectl config set-context --current --namespace=test; \
 	fi
 
-	@if kubectl get role argo-workflow-role -n argo-slsa &> /dev/null && kubectl get rolebinding argo-workflow-rolebinding -n argo-slsa &> /dev/null; then \
-		echo "Role and Rolebinding for Argo Workflows are already available in the argo-slsa namespace..."; \
+	@if kubectl get role argo-workflow-role -n test &> /dev/null && kubectl get rolebinding argo-workflow-rolebinding -n test &> /dev/null; then \
+		echo "Role and Rolebinding for Argo Workflows are already available in the test namespace..."; \
 	else \
-		echo "Creating Role and Rolebinding for Argo Workflows in the argo-slsa namespace..."; \
+		echo "Creating Role and Rolebinding for Argo Workflows in the test namespace..."; \
 		kubectl apply -f test/workflow/rbac/workflows-rbac.yaml; \
 	fi
 

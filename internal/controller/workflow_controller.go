@@ -18,6 +18,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -25,13 +28,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-// WorkflowReconciler reconciles a Workflow object
-type WorkflowReconciler struct {
+// Reconciler reconciles a Workflow object
+type Reconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
@@ -40,39 +46,36 @@ type WorkflowReconciler struct {
 const (
 	enableAnnotation string = "argo.slsa.io/enable"
 	statusLabel      string = "argo.slsa.io/status"
+	configMapName    string = "argo-slsa-config"
 )
 
 //+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list
 //+kubebuilder:rbac:groups="",resources=pods/log,verbs=get;list
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
-
-// update current status in workflow
-func updateWFStatus(r *WorkflowReconciler, ctx context.Context, wf *wfv1alpha1.Workflow, label string, status string) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
-	if wf.Labels == nil {
-		wf.Labels = make(map[string]string)
-	} else if wf.Labels[label] == status {
-		// ignore update if status is same
-		return ctrl.Result{}, nil
-	}
-	wf.Labels[label] = status
-	if err := r.Update(ctx, wf); err != nil {
-		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
-			return ctrl.Result{Requeue: true}, nil
-		}
-		logger.Error(err, "unable to update workflow status")
-		return ctrl.Result{}, err
-	}
-	logger.Info("Workflow status updated", "status", status)
-	return ctrl.Result{}, nil
-}
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
+
+	controllerNamespace, err := getCurrentNamespace()
+	if err != nil {
+		return ctrl.Result{Requeue: true}, err
+	}
+
+	config, err := r.getConfigMap(ctx, configMapName, controllerNamespace)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Error(err, "unable to fetch config map")
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	// TODO: remove later
+	logger.Info("ConfigMap data fetched successfully", "data", config)
 
 	// get workflow resource
 	var workflow wfv1alpha1.Workflow
@@ -98,7 +101,14 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// check if enabled & start securing the supply chain
 	if isEnabled {
 		if !labelIsPresent {
-			return updateWFStatus(r, ctx, &workflow, statusLabel, "in-progress")
+			if err := r.updateWFStatus(ctx, &workflow, statusLabel, "in-progress"); err != nil {
+				if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+					return ctrl.Result{Requeue: true}, nil
+				} else {
+					logger.Error(err, "unable to update workflow status")
+					return ctrl.Result{}, nil
+				}
+			}
 		} else if status == "completed" || status == "error" {
 			// process is already completed or failed
 			return ctrl.Result{}, nil
@@ -135,11 +145,83 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// 		sign and upload the sbom to the registry
 
 	// set the status to completed
-	return updateWFStatus(r, ctx, &workflow, statusLabel, "completed")
+	if err := r.updateWFStatus(ctx, &workflow, statusLabel, "completed"); err != nil {
+		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+			return ctrl.Result{Requeue: true}, nil
+		} else {
+			logger.Error(err, "unable to update workflow status")
+		}
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// update current status in workflow
+func (r *Reconciler) updateWFStatus(ctx context.Context, wf *wfv1alpha1.Workflow, label string, status string) error {
+	logger := log.FromContext(ctx)
+
+	if wf.Labels == nil {
+		wf.Labels = make(map[string]string)
+	} else if wf.Labels[label] == status {
+		// ignore update if status is same
+		return nil
+	}
+	wf.Labels[label] = status
+	if err := r.Update(ctx, wf); err != nil {
+		return err
+	}
+	logger.Info("Workflow status updated", "status", status)
+	return nil
+}
+
+func (r *Reconciler) getConfigMap(ctx context.Context, name string, namespace string) (map[string]string, error) {
+	configMap := &corev1.ConfigMap{}
+	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, configMap)
+	if err != nil {
+		return nil, err
+	}
+	if configMap.Data == nil {
+		configMap.Data = make(map[string]string)
+	}
+	return configMap.Data, nil
+}
+
+func getCurrentNamespace() (string, error) {
+	namespaceFile := filepath.Join("/var/run/secrets/kubernetes.io/serviceaccount", "namespace")
+	namespace, err := os.ReadFile(namespaceFile)
+	if err != nil {
+		return "", err
+	}
+	return string(namespace), nil
+}
+
+func checkConfigMapExists(ctx context.Context, name string, namespace string) error {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return err
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+	_, err = clientset.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("ConfigMap %s/%s not found: %v", namespace, name, err)
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *WorkflowReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	namespace, err := getCurrentNamespace()
+	if err != nil {
+		panic(err)
+	}
+
+	if err = checkConfigMapExists(context.Background(), configMapName, namespace); err != nil {
+		panic(err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wfv1alpha1.Workflow{}).
 		Complete(r)
