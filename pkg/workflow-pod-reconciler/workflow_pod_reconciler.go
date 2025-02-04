@@ -250,6 +250,9 @@ func (wfps *WorkflowPodsStatus) validateAllPodsReconciled() error {
 		if !workflowPod.Reconciliation {
 			return errors.New("not all workflow pods have been reconciled")
 		}
+		if workflowPod.ArtifactsFound && !workflowPod.Signed {
+			return errors.New("error while signing artifacts found in " + workflowPod.Node.DisplayName)
+		}
 	}
 	return nil
 }

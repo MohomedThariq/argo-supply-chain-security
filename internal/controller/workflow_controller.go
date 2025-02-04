@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
@@ -122,6 +123,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if err.Error() == "not all workflow pods have been reconciled" {
 			logger.Info("Waiting for tasks to execute", "workflow", workflow.Name)
 			return ctrl.Result{RequeueAfter: time.Second * 10}, nil
+		} else if strings.HasPrefix(err.Error(), "error while signing artifacts found in ") {
+			if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileError); err != nil {
+				if err.Error() == conflictOrNotFoundError {
+					return ctrl.Result{Requeue: true}, nil
+				} else {
+					logger.Error(err, "unable to update workflow status")
+				}
+			}
+			logger.Error(err, "artifact signing error", "workflow", workflow.Name)
+			return ctrl.Result{}, nil
 		} else if err.Error() == conflictOrNotFoundError {
 			return ctrl.Result{Requeue: true}, nil
 		}
