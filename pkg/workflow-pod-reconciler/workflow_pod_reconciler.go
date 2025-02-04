@@ -33,6 +33,7 @@ const (
 type PodStatus struct {
 	PodName        string
 	Status         wfv1alpha1.NodePhase
+	Node           wfv1alpha1.NodeStatus
 	ArtifactsFound bool
 	Signed         bool
 	Reconciliation bool
@@ -51,6 +52,7 @@ func (wfps *WorkflowPodsStatus) GetPodInfo(workflow *wfv1alpha1.Workflow) error 
 			pods = append(pods, PodStatus{
 				PodName: formatPodName(workflow.Name, node.TemplateName, node.ID),
 				Status:  node.Phase,
+				Node:    node,
 			})
 		}
 	}
@@ -148,9 +150,18 @@ func (wfps *WorkflowPodsStatus) handleArtifactInfo(
 	ctx context.Context, k8sClient client.Client, pod *corev1.Pod, podStatus *PodStatus,
 ) error {
 	if _, exists := pod.Annotations[artifactsAnnotation]; !exists {
-		// TODO: logic to read the logs & get the artifat names. maybe also an artifact type
-		status := false                   // TODO: set to false for now until the logic is implemented
-		artifactInfo := artifactsNotFound // TODO: set to "No-Artifacts-Found" for now until the logic is implemented
+		status := false
+		artifactInfo := artifactsNotFound
+
+		outputs := podStatus.Node.Outputs
+		if outputs.HasParameters() {
+			for _, param := range outputs.Parameters {
+				if hasOCIPrefix := strings.HasPrefix("OCI", param.Name); hasOCIPrefix {
+					status = true
+					artifactInfo = param.GetValue()
+				}
+			}
+		}
 
 		podStatus.ArtifactsFound = status
 		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, artifactsAnnotation, artifactInfo)
