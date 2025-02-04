@@ -478,3 +478,34 @@ build-and-deploy-controller: ## Build and deploy the controller to the k3d clust
 .PHONY: remove-controller
 remove-controller: ## Remove the controller from the k3d cluster
 	$(MAKE) undeploy
+
+##@ argo-server
+.PHONY: setup-user
+setup-user: ## Setups a user for argo workflows UI
+	@if ! kubectl get clusterrole argowork &> /dev/null; then \
+		kubectl create clusterrole argowork --verb=get,list,update --resource=workflows.argoproj.io; \
+	fi
+
+	@if ! kubectl get sa argowork -n argo &> /dev/null; then \
+		kubectl create sa argowork -n argo; \
+	fi
+
+	@if ! kubectl get clusterrolebinding argowork &> /dev/null; then \
+		kubectl create clusterrolebinding argowork --clusterrole=argowork --serviceaccount=argo:argowork; \
+	fi
+
+	@if kubectl get secret argowork.service-account-token -n argo &> /dev/null; then \
+		echo "argowork.service-account-token secret already available in argo namespace"; \
+	else \
+		kubectl create secret generic argowork.service-account-token --type=kubernetes.io/service-account-token --dry-run=client -n argo -o yaml | \
+		kubectl annotate -f - kubernetes.io/service-account.name=argowork --local -o yaml | \
+		kubectl apply -f -; \
+	fi
+
+.PHONY: port-forward
+port-forward: ## Port forwards argo workflows UI
+	@kubectl port-forward svc/argo-argo-workflows-server 8080:2746 -n argo
+
+.PHONY: print-user-token
+print-user-token: ## Prints the user token to use in argo server UI
+	@echo "Bearer $$(kubectl get secret argowork.service-account-token -n argo -o=jsonpath='{.data.token}' | base64 --decode)"
