@@ -100,12 +100,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			logger.Info("Workflow reconciled")
 			return ctrl.Result{}, nil
 		}
-		if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileInProgrees); err != nil {
-			if err.Error() == conflictOrNotFoundError {
-				return ctrl.Result{Requeue: true}, nil
-			} else {
-				logger.Error(err, "unable to update workflow status")
-			}
+		if result, err := r.updateWorkflowStatus(ctx, &workflow, reconcileInProgrees); err != nil {
+			return result, err
 		}
 	} else {
 		logger.Info("Not enabled ignoring workflow", "workflow", workflow.Name)
@@ -120,38 +116,47 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	// reconcile the pods
 	if err := pods.Reconcile(ctx, r.Client, workflow.Namespace); err != nil {
-		if err.Error() == "not all workflow pods have been reconciled" {
+		switch {
+		case err.Error() == "not all workflow pods have been reconciled":
 			logger.Info("Waiting for tasks to execute", "workflow", workflow.Name)
 			return ctrl.Result{RequeueAfter: time.Second * 10}, nil
-		} else if strings.HasPrefix(err.Error(), "error while signing artifacts found in ") {
-			if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileError); err != nil {
-				if err.Error() == conflictOrNotFoundError {
-					return ctrl.Result{Requeue: true}, nil
-				} else {
-					logger.Error(err, "unable to update workflow status")
-				}
+
+		case strings.HasPrefix(err.Error(), "error while signing artifacts found in "):
+			if result, err := r.updateWorkflowStatus(ctx, &workflow, reconcileError); err != nil {
+				return result, err
 			}
 			logger.Error(err, "artifact signing error", "workflow", workflow.Name)
 			return ctrl.Result{}, nil
-		} else if err.Error() == conflictOrNotFoundError {
+
+		case err.Error() == conflictOrNotFoundError:
 			return ctrl.Result{Requeue: true}, nil
+
+		default:
+			logger.Error(err, "failed to reconcile pods")
+			return ctrl.Result{}, err
 		}
-		logger.Error(err, "failed to reconcile pods")
-		return ctrl.Result{}, err
 	}
 
 	// TODO: attach slsa attestation for the artifacts
 
 	// set the status to completed
-	if err := annotationUpdater.PatchAnnotations(ctx, r.Client, &workflow, WorkflowStatusAnnotation, reconcileCompleted); err != nil {
-		if err.Error() == conflictOrNotFoundError {
-			return ctrl.Result{Requeue: true}, nil
-		} else {
-			logger.Error(err, "unable to update workflow status")
-		}
+	if result, err := r.updateWorkflowStatus(ctx, &workflow, reconcileCompleted); err != nil {
+		return result, err
 	}
 
 	logger.Info("Workflow secured successfully", "workflow", workflow.Name)
+	return ctrl.Result{}, nil
+}
+
+func (r *Reconciler) updateWorkflowStatus(ctx context.Context, workflow *wfv1alpha1.Workflow, status string) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	if err := annotationUpdater.PatchAnnotations(ctx, r.Client, workflow, WorkflowStatusAnnotation, status); err != nil {
+		if err.Error() == conflictOrNotFoundError {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		logger.Error(err, "unable to update workflow status")
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{}, nil
 }
 
