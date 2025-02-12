@@ -11,7 +11,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	annotationUpdater "github.com/MohomedThariq/argo-supply-chain-security/pkg/annotation-updater"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/statusUpdater"
 )
 
 const (
@@ -127,7 +127,7 @@ func (wfps *WorkflowPodsStatus) handlePodReconciliation(
 		return wfps.markPodAsSkipped(ctx, k8sClient, pod, podStatus)
 	}
 
-	if err := annotationUpdater.PatchAnnotations(
+	if err := statusUpdater.PatchAnnotations(
 		ctx, k8sClient, pod, podStatusAnnotation, reconciliationInProgerss,
 	); err != nil {
 		return err
@@ -164,7 +164,7 @@ func (wfps *WorkflowPodsStatus) handleArtifactInfo(
 		}
 
 		podStatus.ArtifactsFound = status
-		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, artifactsAnnotation, artifactInfo)
+		return statusUpdater.PatchAnnotations(ctx, k8sClient, pod, artifactsAnnotation, artifactInfo)
 	}
 
 	podStatus.ArtifactsFound = pod.Annotations[artifactsAnnotation] != artifactsNotFound
@@ -175,7 +175,7 @@ func (wfps *WorkflowPodsStatus) handleArtifactSigning(
 	ctx context.Context, k8sClient client.Client, pod *corev1.Pod, podStatus *PodStatus,
 ) error {
 	if !podStatus.ArtifactsFound {
-		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, signedAnnotation, signingSkipped)
+		return statusUpdater.PatchAnnotations(ctx, k8sClient, pod, signedAnnotation, signingSkipped)
 	}
 
 	if _, exists := pod.Annotations[signedAnnotation]; !exists {
@@ -184,7 +184,7 @@ func (wfps *WorkflowPodsStatus) handleArtifactSigning(
 		signingState := signingSkipped // TODO: set to "Skipped" for now until the logic is implemented
 
 		podStatus.Signed = status
-		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, signedAnnotation, signingState)
+		return statusUpdater.PatchAnnotations(ctx, k8sClient, pod, signedAnnotation, signingState)
 	}
 
 	podStatus.Signed = pod.Annotations[signedAnnotation] == signingCompleted
@@ -223,7 +223,7 @@ func (wfps *WorkflowPodsStatus) markPodAsSkipped(
 	ctx context.Context, k8sClient client.Client, pod *corev1.Pod, podStatus *PodStatus,
 ) error {
 	podStatus.Reconciliation = true
-	return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationSkipped)
+	return statusUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationSkipped)
 }
 
 func (wfps *WorkflowPodsStatus) updateFinalStatus(
@@ -233,16 +233,16 @@ func (wfps *WorkflowPodsStatus) updateFinalStatus(
 
 	// if no artifacts found signing is skipped
 	if !podStatus.ArtifactsFound {
-		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationSkipped)
+		return statusUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationSkipped)
 	}
 
 	// when artifacts are found & signed
 	if podStatus.Signed {
-		return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationCompleted)
+		return statusUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationCompleted)
 	}
 
 	// when artifacts are found but not signed
-	return annotationUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationError)
+	return statusUpdater.PatchAnnotations(ctx, k8sClient, pod, podStatusAnnotation, reconciliationError)
 }
 
 func (wfps *WorkflowPodsStatus) validateAllPodsReconciled() error {

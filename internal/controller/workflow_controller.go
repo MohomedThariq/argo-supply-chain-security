@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	annotationUpdater "github.com/MohomedThariq/argo-supply-chain-security/pkg/annotation-updater"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/statusUpdater"
 	wfpr "github.com/MohomedThariq/argo-supply-chain-security/pkg/workflow-pod-reconciler"
 )
 
@@ -48,13 +48,13 @@ type Reconciler struct {
 const (
 	configMapName string = "argo-slsa-config"
 
-	enableAnnotation string = "argo.slsa.io/enable"
-	featureEnabled   string = "true"
+	enableLabel    string = "argo.slsa.io/enable"
+	featureEnabled string = "true"
 
-	WorkflowStatusAnnotation string = "argo.slsa.io/status"
-	reconcileInProgrees      string = "In-Progress"
-	reconcileCompleted       string = "Completed"
-	reconcileError           string = "Error"
+	workflowStatusLabel string = "argo.slsa.io/status"
+	reconcileInProgrees string = "In-Progress"
+	reconcileCompleted  string = "Completed"
+	reconcileError      string = "Error"
 
 	conflictOrNotFoundError = "conflict or not found"
 )
@@ -91,12 +91,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	// start securing the supply chain if enabled
-	isEnabled := workflow.Annotations[enableAnnotation] == featureEnabled
-	status, AnnotationsIsPresent := workflow.Annotations[WorkflowStatusAnnotation]
+	isEnabled := workflow.Labels[enableLabel] == featureEnabled
+	status, statusIsPresent := workflow.Labels[workflowStatusLabel]
 
 	// check if enabled & start securing the supply chain
 	if isEnabled {
-		if AnnotationsIsPresent && (status == reconcileCompleted || status == reconcileError) {
+		if statusIsPresent && (status == reconcileCompleted || status == reconcileError) {
 			logger.Info("Workflow reconciled")
 			return ctrl.Result{}, nil
 		}
@@ -150,7 +150,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 func (r *Reconciler) updateWorkflowStatus(ctx context.Context, workflow *wfv1alpha1.Workflow, status string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	if err := annotationUpdater.PatchAnnotations(ctx, r.Client, workflow, WorkflowStatusAnnotation, status); err != nil {
+	if err := statusUpdater.PatchLabels(ctx, r.Client, workflow, workflowStatusLabel, status); err != nil {
 		if err.Error() == conflictOrNotFoundError {
 			return ctrl.Result{Requeue: true}, nil
 		}

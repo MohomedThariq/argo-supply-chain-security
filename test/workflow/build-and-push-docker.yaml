@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   generateName: build-and-push-docker-
-  annotations:
+  labels:
     argo.slsa.io/enable: "true"
 spec:
   entrypoint: main
