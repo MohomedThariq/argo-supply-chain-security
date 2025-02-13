@@ -64,13 +64,13 @@ func TestReconciler_Reconcile(t *testing.T) {
 			wantRequeue: false,
 		},
 		{
-			name: "Workflow with annotation enabled",
+			name: "Workflow with feature enabled",
 			workflow: &wfv1alpha1.Workflow{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workflow",
 					Namespace: "default",
-					Annotations: map[string]string{
-						enableAnnotation: featureEnabled,
+					Labels: map[string]string{
+						enableLabel: featureEnabled,
 					},
 				},
 			},
@@ -84,13 +84,13 @@ func TestReconciler_Reconcile(t *testing.T) {
 			wantRequeue: true,
 		},
 		{
-			name: "Workflow with annotation disabled",
+			name: "Workflow with feature disabled",
 			workflow: &wfv1alpha1.Workflow{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workflow",
 					Namespace: "default",
-					Annotations: map[string]string{
-						enableAnnotation: "false",
+					Labels: map[string]string{
+						enableLabel: "false",
 					},
 				},
 			},
@@ -109,9 +109,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workflow",
 					Namespace: "default",
-					Annotations: map[string]string{
-						enableAnnotation:         featureEnabled,
-						WorkflowStatusAnnotation: reconcileCompleted,
+					Labels: map[string]string{
+						enableLabel:         featureEnabled,
+						workflowStatusLabel: reconcileCompleted,
 					},
 				},
 			},
@@ -130,9 +130,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workflow",
 					Namespace: "default",
-					Annotations: map[string]string{
-						enableAnnotation:         featureEnabled,
-						WorkflowStatusAnnotation: reconcileError,
+					Labels: map[string]string{
+						enableLabel:         featureEnabled,
+						workflowStatusLabel: reconcileError,
 					},
 				},
 			},
@@ -151,8 +151,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workflow",
 					Namespace: "default",
-					Annotations: map[string]string{
-						enableAnnotation: featureEnabled,
+					Labels: map[string]string{
+						enableLabel: featureEnabled,
 					},
 				},
 			},
@@ -161,13 +161,13 @@ func TestReconciler_Reconcile(t *testing.T) {
 			wantRequeue: false,
 		},
 		// {
-		// 	name: "Workflow with patch annotation error",
+		// 	name: "Workflow with patch label error",
 		// 	workflow: &wfv1alpha1.Workflow{
 		// 		ObjectMeta: metav1.ObjectMeta{
 		// 			Name:      "test-workflow",
 		// 			Namespace: "default",
-		// 			Annotations: map[string]string{
-		// 				enableAnnotation: featureEnabled,
+		// 			Labels: map[string]string{
+		// 				enableLabel: featureEnabled,
 		// 			},
 		// 		},
 		// 	},

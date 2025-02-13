@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   generateName: build-and-push-docker-
-  annotations:
+  labels:
     argo.slsa.io/enable: "true"
 spec:
   entrypoint: main
@@ -37,16 +37,21 @@ spec:
       parameters:
         - name: image
         - name: context
+    outputs:
+      parameters:
+        - name: OCI
+          valueFrom:
+            path: /tmp/oci.txt
     container:
       image: gcr.io/kaniko-project/executor:v1.23.1-debug
       command: ["/busybox/sh", "-c"]
       args: 
         - |
+          mkdir -p /tmp
           cd {{inputs.parameters.context}}
-          executor --context=./ --dockerfile=./Dockerfile --destination="{{inputs.parameters.image}}" --digest-file=/var/digest.txt
+          executor --context=./ --dockerfile=./Dockerfile --destination="{{inputs.parameters.image}}" --digest-file="/tmp/digest.txt"
 
-          echo "IMAGE_URL: {{inputs.parameters.image}}"
-          echo "IMAGE_DIGEST: `cat /var/digest.txt`"
+          echo "{{inputs.parameters.image}}@$(cat /tmp/digest.txt)" > /tmp/oci.txt
       volumeMounts:
       - name: kaniko-secret
         mountPath: "/kaniko/.docker"
