@@ -157,8 +157,8 @@ func (wfps *WorkflowPodsStatus) handleArtifactInfo(
 		if outputs.HasParameters() {
 			for _, param := range outputs.Parameters {
 				if hasOCIPrefix := strings.HasPrefix("OCI", param.Name); hasOCIPrefix {
-					status = true
 					artifactInfo = param.GetValue()
+					status = true
 				}
 			}
 		}

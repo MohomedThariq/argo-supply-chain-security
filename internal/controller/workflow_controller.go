@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -166,7 +167,7 @@ func (r *Reconciler) getConfigMap(ctx context.Context, name string, namespace st
 		return nil, err
 	}
 	if configMap.Data == nil {
-		configMap.Data = make(map[string]string)
+		return nil, errors.New("empty config map")
 	}
 	return configMap.Data, nil
 }
