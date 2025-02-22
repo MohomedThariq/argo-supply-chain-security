@@ -425,7 +425,9 @@ setup-env: ## Setup the environment with k3d to run the controller.
 		echo "Creating secret docker-hub-credentials..."; \
 		read -p "Enter Docker Hub Username: " DOCKER_USERNAME; \
 		read -s -p "Enter Docker Hub Password: " DOCKER_PASSWORD; \
-		kubectl create secret docker-registry docker-hub-credentials --docker-server=https://index.docker.io/v1/ --docker-username=$$DOCKER_USERNAME --docker-password=$$DOCKER_PASSWORD; \
+		kubectl create secret docker-registry docker-hub-credentials --docker-server=https://index.docker.io/v1/ --docker-username=$$DOCKER_USERNAME --docker-password=$$DOCKER_PASSWORD --dry-run=client -o yaml | \
+		kubectl label -f - argo.slsa.io/secret-type=oci --local -o yaml | \
+		kubectl apply -f -; \
 	fi
 
 .PHONY: teardown-env
