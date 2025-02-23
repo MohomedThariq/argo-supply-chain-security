@@ -8,15 +8,18 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sigstore/cosign/pkg/cosign/kubernetes"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/auth"
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/fulcio"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/fulcio/fulcioverifier"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/generate"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/sign"
 	"github.com/sigstore/cosign/v2/pkg/cosign"
+	"github.com/sigstore/cosign/v2/pkg/cosign/kubernetes"
 	"github.com/sigstore/cosign/v2/pkg/cosign/pkcs11key"
 	cremote "github.com/sigstore/cosign/v2/pkg/cosign/remote"
+	ociremote "github.com/sigstore/cosign/v2/pkg/oci/remote"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/signature/kms"
@@ -103,7 +106,7 @@ var (
 // 	return nil
 // }
 
-func Sign() (err error) {
+func Sign(oci string) (err error) {
 	o := &options.SignOptions{}
 	oidcClientSecret := "" // default
 	ko := options.KeyOpts{
@@ -145,10 +148,25 @@ func Sign() (err error) {
 		}
 	}
 
-	regOpts := o.Registry
-	opts, err := regOpts.ClientOpts(ctx)
+	opts, err := auth.RegistryClientOpts(ctx)
 	if err != nil {
 		return fmt.Errorf("constructing client options: %w", err)
+	}
+
+	// singning start
+	ref, err := name.ParseReference(oci)
+	if err != nil {
+		return fmt.Errorf("parsing reference: %w", err)
+	}
+	digest, ok := ref.(name.Digest)
+	if !ok {
+		return fmt.Errorf("digest not awailable in oci ref")
+	}
+	se, err := ociremote.SignedEntity(ref, opts...)
+	if _, isEntityNotFoundErr := err.(*ociremote.EntityNotFoundError); isEntityNotFoundErr {
+		se = ociremote.SignedUnknown(digest)
+	} else if err != nil {
+		return fmt.Errorf("accessing image: %w", err)
 	}
 
 	return nil
