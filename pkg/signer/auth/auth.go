@@ -54,18 +54,11 @@ func RegistryClientOptsWithK8s(ctx context.Context, client kubernetes.Interface,
 		remote.WithContext(ctx),
 	}
 
-	if kubeKeyChain, err := k8schain.New(ctx, client,
-		k8schain.Options{
-			Namespace:          wf.Namespace,
-			ServiceAccountName: wf.Spec.ServiceAccountName,
-			ImagePullSecrets:   getPullSecrets(ctx, client, wf.Namespace, wf.Spec.ServiceAccountName),
-			UseMountSecrets:    true,
-		},
-	); err == nil {
+	if kubeKeyChain, err := getAuthFromK8sServiceAccount(ctx, client, wf.Namespace, wf.Spec.ServiceAccountName); err == nil {
 		opts = append(opts, remote.WithAuthFromKeychain(kubeKeyChain))
 	}
 
-	if argoKeychain, err := getAuthFromSecrets(ctx, client, namespace, wf); err == nil {
+	if argoKeychain, err := getAuthFromSecrets(ctx, client, namespace, wf.Namespace); err == nil {
 		opts = append(opts, remote.WithAuthFromKeychain(argoKeychain))
 	}
 
@@ -100,13 +93,24 @@ const (
 	ociSecretSelector = "argo.slsa.io/secret-type=oci"
 )
 
-func getAuthFromSecrets(ctx context.Context, client kubernetes.Interface, namespace string, wf *wfv1alpha1.Workflow) (authn.Keychain, error) {
+func getAuthFromK8sServiceAccount(ctx context.Context, client kubernetes.Interface, namespace, serviceAccount string) (authn.Keychain, error) {
+	return k8schain.New(ctx, client,
+		k8schain.Options{
+			Namespace:          namespace,
+			ServiceAccountName: serviceAccount,
+			ImagePullSecrets:   getPullSecrets(ctx, client, namespace, serviceAccount),
+			UseMountSecrets:    true,
+		},
+	)
+}
+
+func getAuthFromSecrets(ctx context.Context, client kubernetes.Interface, namespace, workflowNmaspace string) (authn.Keychain, error) {
 	var secretList []corev1.Secret
 	secrets, err := getNamespacedSecrets(ctx, client, namespace, ociSecretSelector)
 	if err == nil {
 		secretList = append(secretList, secrets...)
 	}
-	secrets, err = getNamespacedSecrets(ctx, client, wf.Namespace, ociSecretSelector)
+	secrets, err = getNamespacedSecrets(ctx, client, workflowNmaspace, ociSecretSelector)
 	if err == nil {
 		secretList = append(secretList, secrets...)
 	}
