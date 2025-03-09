@@ -1,4 +1,4 @@
-package statusUpdater
+package statusupdater
 
 import (
 	"context"
@@ -37,6 +37,7 @@ func patchMetadata(ctx context.Context, k8sClient client.Client, r client.Object
 	return nil
 }
 
+// PatchAnnotations patches a kubernets resourece annotation
 func PatchAnnotations(ctx context.Context, k8sClient client.Client, r client.Object, label string, info string) error {
 	return patchMetadata(ctx, k8sClient, r, label, info,
 		func(obj client.Object) map[string]string { return obj.GetAnnotations() },
@@ -44,6 +45,7 @@ func PatchAnnotations(ctx context.Context, k8sClient client.Client, r client.Obj
 	)
 }
 
+// PatchLabels patches a kubernetes resource label
 func PatchLabels(ctx context.Context, k8sClient client.Client, r client.Object, label string, info string) error {
 	return patchMetadata(ctx, k8sClient, r, label, info,
 		func(obj client.Object) map[string]string { return obj.GetLabels() },

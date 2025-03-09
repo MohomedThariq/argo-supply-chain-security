@@ -19,9 +19,7 @@ import (
 	"crypto"
 	"crypto/sha256"
 	"encoding/base64"
-	"fmt"
 	"io"
-	"os"
 
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/internal/pkg/cosign"
 	cosignv1 "github.com/sigstore/cosign/v2/pkg/cosign"
@@ -41,7 +39,7 @@ func uploadToTlog(rekorBytes []byte, rClient *client.Rekor, upload tlogUploadFn)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Fprintln(os.Stderr, "tlog entry created with index:", *entry.LogIndex)
+	// fmt.Fprintln(os.Stderr, "tlog entry created with index:", *entry.LogIndex)
 	return cbundle.EntryToBundle(entry), nil
 }
 

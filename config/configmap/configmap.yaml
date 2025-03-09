@@ -9,5 +9,5 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 data:
   # following signing options are available
-  # secret, kms, fulcio
-  artifacts.signer: secret
+  # cosign, kms, fulcio
+  artifacts.signer: cosign

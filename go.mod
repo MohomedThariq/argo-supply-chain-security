@@ -2,8 +2,6 @@ module github.com/MohomedThariq/argo-supply-chain-security
 
 go 1.23.4
 
-toolchain go1.23.6
-
 require (
 	github.com/argoproj/argo-workflows/v3 v3.6.2
 	github.com/awslabs/amazon-ecr-credential-helper/ecr-login v0.9.1
@@ -14,6 +12,7 @@ require (
 	github.com/go-openapi/swag v0.23.0
 	github.com/google/go-containerregistry v0.20.3
 	github.com/google/go-containerregistry/pkg/authn/k8schain v0.0.0-20250115185438-c4dd792fa06c
+	github.com/google/go-containerregistry/pkg/authn/kubernetes v0.0.0-20241111191718-6bce25ecf029
 	github.com/mozillazg/docker-credential-acr-helper v0.4.0
 	github.com/onsi/ginkgo/v2 v2.22.1
 	github.com/onsi/gomega v1.36.2
@@ -144,7 +143,6 @@ require (
 	github.com/google/certificate-transparency-go v1.3.1 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
-	github.com/google/go-containerregistry/pkg/authn/kubernetes v0.0.0-20241111191718-6bce25ecf029 // indirect
 	github.com/google/go-github/v55 v55.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect

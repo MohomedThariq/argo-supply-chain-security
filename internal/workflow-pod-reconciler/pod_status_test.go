@@ -1,9 +1,10 @@
-package workflowPodReconciler
+package workflowpodreconciler
 
 import (
 	"context"
 	"testing"
 
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
 	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -16,16 +17,16 @@ import (
 func TestHandlePodReconciliation(t *testing.T) {
 	tests := []struct {
 		name           string
-		podStatus      *PodStatus
+		podStatus      *podStatus
 		pod            *corev1.Pod
 		expectedError  bool
 		expectedStatus string
 	}{
 		{
 			name: "Node in error state should mark as skipped",
-			podStatus: &PodStatus{
-				PodName: "test-pod",
-				Status:  wfv1alpha1.NodeError,
+			podStatus: &podStatus{
+				podName: "test-pod",
+				status:  wfv1alpha1.NodeError,
 			},
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
@@ -37,9 +38,9 @@ func TestHandlePodReconciliation(t *testing.T) {
 		},
 		{
 			name: "Pod not in succeeded state should mark as skipped",
-			podStatus: &PodStatus{
-				PodName: "test-pod",
-				Status:  wfv1alpha1.NodeSucceeded,
+			podStatus: &podStatus{
+				podName: "test-pod",
+				status:  wfv1alpha1.NodeSucceeded,
 			},
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
@@ -54,9 +55,9 @@ func TestHandlePodReconciliation(t *testing.T) {
 		},
 		{
 			name: "Happy path with no artifacts should mark as skipped",
-			podStatus: &PodStatus{
-				PodName: "test-pod",
-				Status:  wfv1alpha1.NodeSucceeded,
+			podStatus: &podStatus{
+				podName: "test-pod",
+				status:  wfv1alpha1.NodeSucceeded,
 			},
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
@@ -71,9 +72,9 @@ func TestHandlePodReconciliation(t *testing.T) {
 		},
 		{
 			name: "Happy path with artifacts but no signing should mark as error",
-			podStatus: &PodStatus{
-				PodName: "test-pod",
-				Status:  wfv1alpha1.NodeSucceeded,
+			podStatus: &podStatus{
+				podName: "test-pod",
+				status:  wfv1alpha1.NodeSucceeded,
 			},
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
@@ -91,9 +92,9 @@ func TestHandlePodReconciliation(t *testing.T) {
 		},
 		{
 			name: "Happy path with artifacts and signing should mark as completed",
-			podStatus: &PodStatus{
-				PodName: "test-pod",
-				Status:  wfv1alpha1.NodeSucceeded,
+			podStatus: &podStatus{
+				podName: "test-pod",
+				status:  wfv1alpha1.NodeSucceeded,
 			},
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
@@ -119,8 +120,11 @@ func TestHandlePodReconciliation(t *testing.T) {
 
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.pod).Build()
 
-			wfps := &WorkflowPodsStatus{}
-			err := wfps.handlePodReconciliation(context.Background(), fakeClient, tt.pod, tt.podStatus)
+			runtimrconfig := config.RuntimeConfig{
+				Client: fakeClient,
+			}
+
+			err := tt.podStatus.handlePodReconciliation(context.Background(), config.Config{}, runtimrconfig, tt.pod)
 
 			if tt.expectedError {
 				assert.Error(t, err)

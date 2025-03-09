@@ -29,8 +29,8 @@ spec:
               - name: context
                 value: "{{item.context}}"
           withItems:
-            - { image: "mothlk/hello-world-1:0.1.0", context: "/workspace/test/build-src/docker/hello-world-1" }
-            - { image: "mothlk/hello-world-2:0.1.0", context: "/workspace/test/build-src/docker/hello-world-2" }
+            - { image: "1234thariq/hello-world-1:0.1.0", context: "/workspace/test/build-src/docker/hello-world-1" }
+            - { image: "1234thariq/hello-world-2:0.1.0", context: "/workspace/test/build-src/docker/hello-world-2" }
 
   - name: build-and-push
     inputs:

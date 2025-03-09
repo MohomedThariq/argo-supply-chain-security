@@ -476,10 +476,24 @@ build-and-deploy-controller: ## Build and deploy the controller to the k3d clust
 	$(MAKE) docker-build
 	$(MAKE) import-image-to-k3d
 	$(MAKE) deploy
+	$(MAKE) generate-key-pair
 
 .PHONY: remove-controller
 remove-controller: ## Remove the controller from the k3d cluster
 	$(MAKE) undeploy
+
+.PHONY: generate-key-pair
+generate-key-pair: ## Generate cosign keypair in environment
+	@if ! command -v cosign &> /dev/null; then \
+		echo "cosign not found, installing..."; \
+		wget "https://github.com/sigstore/cosign/releases/download/v2.4.2/cosign-linux-amd64"; \
+		sudo mv cosign-linux-amd64 /usr/local/bin/cosign; \
+		sudo chmod +x /usr/local/bin/cosign; \
+	else \
+		echo "cosign is already installed..."; \
+	fi
+
+	cosign generate-key-pair k8s://argo-slsa/signing-secret
 
 ##@ argo-server
 .PHONY: setup-user

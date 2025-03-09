@@ -9,8 +9,9 @@ import (
 	ecr "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
 	"github.com/chrismellard/docker-credential-acr-env/pkg/credhelper"
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/authn/github"
 	"github.com/google/go-containerregistry/pkg/authn/k8schain"
+
+	kauth "github.com/google/go-containerregistry/pkg/authn/kubernetes"
 	"github.com/google/go-containerregistry/pkg/v1/google"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	alibabaacr "github.com/mozillazg/docker-credential-acr-helper/pkg/credhelper"
@@ -18,80 +19,54 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-func RegistryClientOpts(ctx context.Context) ([]ociremote.Option, error) {
-	opts := []remote.Option{
-		remote.WithContext(ctx),
-	}
+const (
+	dockerHubAuthKey  = authn.DefaultAuthKey
+	ociSecretSelector = "argo.slsa.io/secret-type=oci"
+)
 
-	KubeKeyChain := authn.NewMultiKeychain(
-		authn.DefaultKeychain,
-		google.Keychain,
-		authn.NewKeychainFromHelper(ecr.NewECRHelper(ecr.WithLogger(io.Discard))),
-		authn.NewKeychainFromHelper(credhelper.NewACRCredentialsHelper()),
-		authn.NewKeychainFromHelper(alibabaacr.NewACRHelper().WithLoggerOut(io.Discard)),
-		github.Keychain,
-	)
-	opts = append(opts, remote.WithAuthFromKeychain(KubeKeyChain))
-
-	// TODO: add auth to grt auth from label selector auths from argo-slsa ns & workflow running ns
-
-	pusher, err := remote.NewPusher(opts...)
-	if err == nil {
-		opts = append(opts, remote.Reuse(pusher))
-	}
-	puller, err := remote.NewPuller(opts...)
-	if err == nil {
-		opts = append(opts, remote.Reuse(puller))
-	}
-
-	return []ociremote.Option{ociremote.WithRemoteOptions(opts...)}, nil
-}
-
+// RegistryClientOptsWithK8s handles authentication for an oci storage
 func RegistryClientOptsWithK8s(ctx context.Context, client kubernetes.Interface, namespace string, wf *wfv1alpha1.Workflow) ([]ociremote.Option, error) {
 	opts := []remote.Option{
 		remote.WithContext(ctx),
 	}
 
-	if kubeKeyChain, err := getAuthFromK8sServiceAccount(ctx, client, wf.Namespace, wf.Spec.ServiceAccountName); err == nil {
-		opts = append(opts, remote.WithAuthFromKeychain(kubeKeyChain))
-	}
-
-	if argoKeychain, err := getAuthFromSecrets(ctx, client, namespace, wf.Namespace); err == nil {
-		opts = append(opts, remote.WithAuthFromKeychain(argoKeychain))
-	}
-
-	authKeyChain := authn.NewMultiKeychain(
+	keyChains := []authn.Keychain{
 		authn.DefaultKeychain,
 		google.Keychain,
 		authn.NewKeychainFromHelper(ecr.NewECRHelper(ecr.WithLogger(io.Discard))),
 		authn.NewKeychainFromHelper(credhelper.NewACRCredentialsHelper()),
 		authn.NewKeychainFromHelper(alibabaacr.NewACRHelper().WithLoggerOut(io.Discard)),
-		github.Keychain,
-	)
+	}
+
+	// if kubeKeyChain, err := getAuthFromK8sServiceAccount(ctx, client, wf.Namespace, wf.Spec.ServiceAccountName); err == nil {
+	// 	opts = append(opts, remote.WithAuthFromKeychain(kubeKeyChain))
+	// }
+
+	if argoKeychain, err := getAuthFromSecrets(ctx, client, []string{namespace, wf.Namespace}); err == nil {
+		keyChains = append(keyChains, argoKeychain)
+	}
+
+	authKeyChain := authn.NewMultiKeychain(keyChains...)
 	opts = append(opts, remote.WithAuthFromKeychain(authKeyChain))
 
-	// TODO: add auth to grt auth from label selector auths from argo-slsa ns & workflow running ns
-
-	if pusher, err := remote.NewPusher(opts...); err == nil {
-		opts = append(opts, remote.Reuse(pusher))
-	}
 	if puller, err := remote.NewPuller(opts...); err == nil {
 		opts = append(opts, remote.Reuse(puller))
 	}
 
+	if pusher, err := remote.NewPusher(opts...); err == nil {
+		opts = append(opts, remote.Reuse(pusher))
+	}
+
 	remoteOpts := []ociremote.Option{ociremote.WithRemoteOptions(opts...)}
 	if len(remoteOpts) == 0 {
-		return nil, fmt.Errorf("no authmechanisms configured")
+		return nil, fmt.Errorf("no auth mechanisms configured")
 	}
 
 	return remoteOpts, nil
 }
-
-const (
-	ociSecretSelector = "argo.slsa.io/secret-type=oci"
-)
 
 func getAuthFromK8sServiceAccount(ctx context.Context, client kubernetes.Interface, namespace, serviceAccount string) (authn.Keychain, error) {
 	return k8schain.New(ctx, client,
@@ -104,22 +79,20 @@ func getAuthFromK8sServiceAccount(ctx context.Context, client kubernetes.Interfa
 	)
 }
 
-func getAuthFromSecrets(ctx context.Context, client kubernetes.Interface, namespace, workflowNmaspace string) (authn.Keychain, error) {
+func getAuthFromSecrets(ctx context.Context, client kubernetes.Interface, namespaces []string) (authn.Keychain, error) {
 	var secretList []corev1.Secret
-	secrets, err := getNamespacedSecrets(ctx, client, namespace, ociSecretSelector)
-	if err == nil {
-		secretList = append(secretList, secrets...)
-	}
-	secrets, err = getNamespacedSecrets(ctx, client, workflowNmaspace, ociSecretSelector)
-	if err == nil {
-		secretList = append(secretList, secrets...)
+	for _, ns := range namespaces {
+		secrets, err := getNamespacedSecrets(ctx, client, ns, ociSecretSelector)
+		if err == nil {
+			secretList = append(secretList, secrets...)
+		}
 	}
 
 	if len(secretList) == 0 {
 		return nil, fmt.Errorf("no secrets with %s label", ociSecretSelector)
 	}
 
-	kc, err := k8schain.NewFromPullSecrets(ctx, secretList)
+	kc, err := kauth.NewFromPullSecrets(ctx, secretList)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create keychain from secrets")
 	}
@@ -128,11 +101,15 @@ func getAuthFromSecrets(ctx context.Context, client kubernetes.Interface, namesp
 }
 
 func getNamespacedSecrets(ctx context.Context, client kubernetes.Interface, namespace, labelSelector string) ([]corev1.Secret, error) {
+	logger := log.FromContext(ctx)
+
 	secrets, err := client.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list secrets in namespace %s: %w", namespace, err)
+		err := fmt.Errorf("failed to list secrets in namespace %s: %w", namespace, err)
+		logger.Error(err, "unable to get secrets")
+		return nil, err
 	}
 
 	return secrets.Items, nil
