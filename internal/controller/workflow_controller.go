@@ -153,7 +153,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
-	// TODO: attach slsa attestation for the artifacts
+	// if err := pods.AttestArtifacts(ctx, cfg, rcfg, []byte(attest.SampleAtt)); err != nil {
+	// 	if result, err := r.updateWorkflowStatus(ctx, &workflow, reconcileError); err != nil {
+	// 		return result, err
+	// 	}
+	// 	logger.Error(err, "artifact attesting error detected", "workflow", workflow.Name)
+	// 	return ctrl.Result{}, nil
+	// }
 
 	// set the status to completed
 	if result, err := r.updateWorkflowStatus(ctx, &workflow, reconcileCompleted); err != nil {

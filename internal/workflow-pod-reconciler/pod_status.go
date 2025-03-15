@@ -47,6 +47,8 @@ type podStatus struct {
 	// artifactsFound indicates if any OCI artifacts were found in the pod
 	artifactsFound bool
 
+	artifactInfo string
+
 	// signed indicates if the artifacts in the pod have been signed
 	signed bool
 
@@ -129,6 +131,7 @@ func (podStatus *podStatus) handleArtifactInfo(ctx context.Context, k8sClient cl
 		}
 
 		podStatus.artifactsFound = status
+		podStatus.artifactInfo = artifactInfo
 		return statusupdater.PatchAnnotations(ctx, k8sClient, pod, artifactsAnnotation, artifactInfo)
 	}
 
@@ -197,6 +200,7 @@ func (podStatus *podStatus) currentRconsiliationStatus(pod *corev1.Pod) {
 
 	if artifacts, exists := pod.Annotations[artifactsAnnotation]; exists && artifacts != artifactsNotFound {
 		podStatus.artifactsFound = true
+		podStatus.artifactInfo = artifacts
 	}
 
 	if signed, exists := pod.Annotations[signedAnnotation]; exists && signed != signingError {

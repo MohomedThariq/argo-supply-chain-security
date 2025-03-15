@@ -9,6 +9,7 @@ import (
 	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer"
 )
 
 // WorkflowPodsStatus represents the current state and metadata of all the workflow pods
@@ -66,6 +67,17 @@ func (wfps *WorkflowPodsStatus) validateAllPodsReconciled() error {
 		}
 		if workflowPod.artifactsFound && !workflowPod.signed {
 			return errors.New("error while signing artifacts found in " + workflowPod.node.DisplayName)
+		}
+	}
+	return nil
+}
+
+func (wfps *WorkflowPodsStatus) AttestArtifacts(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig, payload []byte) error {
+	for _, workflowPod := range *wfps {
+		if workflowPod.artifactsFound && workflowPod.signed {
+			if err := signer.AttestWithConfigOpts(ctx, cfg, rcfg, workflowPod.artifactInfo, payload); err != nil {
+				return fmt.Errorf("error wihile attesting: %w", err)
+			}
 		}
 	}
 	return nil
