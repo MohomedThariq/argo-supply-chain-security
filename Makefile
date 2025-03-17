@@ -367,7 +367,7 @@ setup-env: ## Setup the environment with k3d to run the controller.
 		echo "${K3D_CLUSTER_NAME} is available in k3d..."; \
 	else \
 		echo "Test cluster not found in k3d, creating..."; \
-		k3d cluster create ${K3D_CLUSTER_NAME} -v "${PWD}:/workspace@agent:*" -v "${PWD}:/workspace@server:*"; \
+		k3d cluster create ${K3D_CLUSTER_NAME}; \
 	fi
 
 	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}.*1/1"; then \
