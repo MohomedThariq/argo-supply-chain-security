@@ -36,8 +36,6 @@ type Config struct {
 
 	Transparency    bool
 	TransparencyURL string
-
-	WorkloadIdentity bool
 }
 
 // New constructs the Config type using configData
@@ -55,25 +53,17 @@ func New(configData map[string]string) Config {
 		config.KmsURL = kmsRef
 	}
 
-	tEnabled := false
-	transparency, ok := configData[transparencyKey]
-	if ok && strings.ToLower(transparency) == "true" {
-		tEnabled = true
-	}
-	config.Transparency = tEnabled
-
-	TransparencyURL, ok := configData[transparencyURLKey]
-	TransparencyURL = defaultTransparencyURL
-	if ok {
-		config.TransparencyURL = TransparencyURL
+	if transparency, ok := configData[transparencyKey]; ok && strings.ToLower(transparency) == "true" {
+		config.Transparency = true
+	} else {
+		config.Transparency = false
 	}
 
-	wiEnabled := false
-	workloadIdentity, ok := configData[workloadIdentityKey]
-	if ok && strings.ToLower(workloadIdentity) == "true" {
-		tEnabled = true
+	if transparencyURL, ok := configData[transparencyURLKey]; ok && transparencyURL != "" {
+		config.TransparencyURL = transparencyURL
+	} else {
+		config.TransparencyURL = defaultTransparencyURL
 	}
-	config.WorkloadIdentity = wiEnabled
 
 	return *config
 }

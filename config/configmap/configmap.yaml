@@ -11,3 +11,4 @@ data:
   # following signing options are available
   # cosign, kms, fulcio
   artifacts.signer: cosign
+  signer.transparency.enabled: "true"

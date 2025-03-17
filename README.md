@@ -34,6 +34,11 @@ make build-and-deploy-controller
 kubectl create -f test/workflow/build-and-push-docker.yaml
 ```
 
+#### Verify a secured artifact
+``` sh
+cosign verify --key k8s://argo-slsa/signing-secret [image]
+```
+
 ### Aditional commands
 #### remove the controller
 ``` sh

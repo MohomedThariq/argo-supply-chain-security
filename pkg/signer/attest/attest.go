@@ -135,13 +135,15 @@ func AttestOci(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig
 	}
 	opts = append(opts, static.WithAnnotations(predicateTypeAnnotation))
 
-	bundle, err := uploadToTlog(ctx, sv, c.RekorURL, func(r *rclient.Rekor, b []byte) (*models.LogEntryAnon, error) {
-		return cosign.TLogUploadDSSEEnvelope(ctx, r, signedPayload, b)
-	})
-	if err != nil {
-		return err
+	if c.TlogUpload {
+		bundle, err := uploadToTlog(ctx, sv, c.RekorURL, func(r *rclient.Rekor, b []byte) (*models.LogEntryAnon, error) {
+			return cosign.TLogUploadDSSEEnvelope(ctx, r, signedPayload, b)
+		})
+		if err != nil {
+			return err
+		}
+		opts = append(opts, static.WithBundle(bundle))
 	}
-	opts = append(opts, static.WithBundle(bundle))
 
 	sig, err := static.NewAttestation(signedPayload, opts...)
 	if err != nil {
