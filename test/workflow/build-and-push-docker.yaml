@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: build-and-push-docker-
+  generateName: build-
   labels:
     argo.slsa.io/enable: "true"
 spec:
@@ -24,7 +24,7 @@ spec:
         - name: revision
     steps:
       - - name: build-and-push
-          template: build-and-push
+          template: build-and-push-docker
           arguments:
             parameters:
               - name: image
@@ -37,7 +37,7 @@ spec:
             - { image: "1234thariq/hello-world-1:0.1.0", context: "/source/test/build-src/docker/hello-world-1" }
             - { image: "1234thariq/hello-world-2:0.1.0", context: "/source/test/build-src/docker/hello-world-2" }
 
-  - name: build-and-push
+  - name: build-and-push-docker
     inputs:
       parameters:
         - name: image

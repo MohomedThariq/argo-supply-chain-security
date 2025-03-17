@@ -498,16 +498,12 @@ generate-key-pair: ## Generate cosign keypair in environment
 ##@ argo-server
 .PHONY: setup-user
 setup-user: ## Setups a user for argo workflows UI
-	@if ! kubectl get clusterrole argowork &> /dev/null; then \
-		kubectl create clusterrole argowork --verb=get,list,update --resource=workflows.argoproj.io; \
-	fi
-
 	@if ! kubectl get sa argowork -n argo &> /dev/null; then \
 		kubectl create sa argowork -n argo; \
 	fi
 
 	@if ! kubectl get clusterrolebinding argowork &> /dev/null; then \
-		kubectl create clusterrolebinding argowork --clusterrole=argowork --serviceaccount=argo:argowork; \
+		kubectl create clusterrolebinding argowork --clusterrole=argo-argo-workflows-server --serviceaccount=argo:argowork; \
 	fi
 
 	@if kubectl get secret argowork.service-account-token -n argo &> /dev/null; then \
