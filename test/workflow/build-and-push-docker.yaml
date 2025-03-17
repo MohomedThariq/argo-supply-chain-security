@@ -6,19 +6,22 @@ metadata:
     argo.slsa.io/enable: "true"
 spec:
   entrypoint: main
+  arguments:
+    parameters:
+      - name: revision
+        value: main
   volumes:
-  - name: kaniko-secret
-    secret:
-      secretName: docker-hub-credentials    # name of an existing k8s secret
-      items:
-        - key: .dockerconfigjson
-          path: config.json
-  - name: workspace
-    hostPath:
-      path: /workspace
-      type: Directory
+    - name: kaniko-secret
+      secret:
+        secretName: docker-hub-credentials    # name of an existing k8s secret
+        items:
+          - key: .dockerconfigjson
+            path: config.json
   templates:
   - name: main
+    inputs:
+      parameters:
+        - name: revision
     steps:
       - - name: build-and-push
           template: build-and-push
@@ -28,15 +31,24 @@ spec:
                 value: "{{item.image}}"
               - name: context
                 value: "{{item.context}}"
+              - name: revision
+                value: "{{inputs.parameters.revision}}"
           withItems:
-            - { image: "1234thariq/hello-world-1:0.1.0", context: "/workspace/test/build-src/docker/hello-world-1" }
-            - { image: "1234thariq/hello-world-2:0.1.0", context: "/workspace/test/build-src/docker/hello-world-2" }
+            - { image: "1234thariq/hello-world-1:0.1.0", context: "/source/test/build-src/docker/hello-world-1" }
+            - { image: "1234thariq/hello-world-2:0.1.0", context: "/source/test/build-src/docker/hello-world-2" }
 
   - name: build-and-push
     inputs:
       parameters:
         - name: image
         - name: context
+        - name: revision
+      artifacts:
+        - name: git-source
+          path: /source
+          git:
+            repo: https://github.com/MohomedThariq/argo-supply-chain-security.git
+            revision: "{{inputs.parameters.revision}}"
     outputs:
       parameters:
         - name: OCI
@@ -55,5 +67,3 @@ spec:
       volumeMounts:
       - name: kaniko-secret
         mountPath: "/kaniko/.docker"
-      - name: workspace
-        mountPath: /workspace
