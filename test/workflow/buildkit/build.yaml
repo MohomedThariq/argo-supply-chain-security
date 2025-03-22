@@ -8,10 +8,12 @@ spec:
   entrypoint: main
   arguments:
     parameters:
+      - name: repo-url
+        value: https://github.com/MohomedThariq/argo-supply-chain-security.git
       - name: revision
         value: main
   volumes:
-    - name: kaniko-secret
+    - name: docker-secret
       secret:
         secretName: docker-hub-credentials    # name of an existing k8s secret
         items:
@@ -21,6 +23,7 @@ spec:
   - name: main
     inputs:
       parameters:
+        - name: repo-url
         - name: revision
     steps:
       - - name: build-and-push
@@ -31,6 +34,8 @@ spec:
                 value: "{{item.image}}"
               - name: context
                 value: "{{item.context}}"
+              - name: repo-url
+                value: "{{inputs.parameters.repo-url}}"
               - name: revision
                 value: "{{inputs.parameters.revision}}"
           withItems:
@@ -42,12 +47,13 @@ spec:
       parameters:
         - name: image
         - name: context
+        - name: repo-url
         - name: revision
       artifacts:
         - name: git-source
           path: /source
           git:
-            repo: https://github.com/MohomedThariq/argo-supply-chain-security.git
+            repo: "{{inputs.parameters.repo-url}}"
             revision: "{{inputs.parameters.revision}}"
     outputs:
       parameters:
@@ -55,15 +61,26 @@ spec:
           valueFrom:
             path: /tmp/oci.txt
     container:
-      image: gcr.io/kaniko-project/executor:v1.23.1-debug
-      command: ["/busybox/sh", "-c"]
+      image: moby/buildkit:master-rootless
+      securityContext:
+        runAsUser: 1000       # Run as non‑root user
+        runAsNonRoot: true
+      volumeMounts:
+        - name: docker-secret
+          mountPath: /home/user/.docker
+      command: ["/bin/sh", "-c"]
       args: 
         - |
-          mkdir -p /tmp
-          cd {{inputs.parameters.context}}
-          executor --context=./ --dockerfile=./Dockerfile --destination="{{inputs.parameters.image}}" --digest-file="/tmp/digest.txt"
+          echo "Building multi-architecture image and pushing to repository..."
+          buildctl --addr tcp://buildkitd:1234 build \
+            --frontend dockerfile.v0 \
+            --local context={{inputs.parameters.context}} \
+            --local dockerfile={{inputs.parameters.context}} \
+            --opt platform=linux/amd64,linux/arm64 \
+            --output type=image,name={{inputs.parameters.image}},push=true \
+            --metadata-file /tmp/metadata.json
 
-          echo "{{inputs.parameters.image}}@$(cat /tmp/digest.txt)" > /tmp/oci.txt
-      volumeMounts:
-      - name: kaniko-secret
-        mountPath: "/kaniko/.docker"
+          echo "Workflow finished. Image pushed to repository."
+          cat /tmp/metadata.json
+          digest=$(awk -F'"' '/"containerimage.digest"/ {print $4}' /tmp/metadata.json)
+          echo -n "{{inputs.parameters.image}}@${digest}" > /tmp/oci.txt

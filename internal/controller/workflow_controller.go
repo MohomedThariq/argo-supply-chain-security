@@ -38,7 +38,6 @@ import (
 
 	wfpr "github.com/MohomedThariq/argo-supply-chain-security/internal/workflow-pod-reconciler"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
-	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/attest"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/statusupdater"
 )
 
@@ -154,7 +153,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
-	if err := pods.AttestArtifacts(ctx, cfg, rcfg, []byte(attest.SampleAtt)); err != nil {
+	if err := pods.AttestArtifacts(ctx, cfg, rcfg); err != nil {
 		if result, err := r.updateWorkflowStatus(ctx, &workflow, reconcileError); err != nil {
 			return result, err
 		}

@@ -5,6 +5,8 @@ import (
 	"errors"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -12,23 +14,48 @@ func patchMetadata(ctx context.Context, k8sClient client.Client, r client.Object
 	getMetadata func(client.Object) map[string]string,
 	setMetadata func(client.Object, map[string]string)) error {
 
-	original, ok := r.DeepCopyObject().(client.Object)
-	if !ok {
-		return errors.New("unable to convert object to client.Object")
-	}
+	// Define backoff with max attempts
+	backoff := retry.DefaultBackoff
+	backoff.Steps = 3
 
-	metadata := getMetadata(r)
-	if metadata == nil {
-		metadata = make(map[string]string)
-	}
-	if existing, exists := metadata[key]; exists && existing == value {
-		return nil
-	}
-	metadata[key] = value
-	setMetadata(r, metadata)
+	err := retry.OnError(backoff, func(err error) bool {
+		// Only retry on conflict errors, not on NotFound errors
+		return apierrors.IsConflict(err)
+	}, func() error {
+		// Get fresh copy
+		namespacedName := types.NamespacedName{
+			Namespace: r.GetNamespace(),
+			Name:      r.GetName(),
+		}
 
-	patch := client.MergeFrom(original)
-	if err := k8sClient.Patch(ctx, r, patch); err != nil {
+		if err := k8sClient.Get(ctx, namespacedName, r); err != nil {
+			return err
+		}
+
+		// Create a fresh copy for the patch base
+		original, ok := r.DeepCopyObject().(client.Object)
+		if !ok {
+			return errors.New("unable to convert object to client.Object")
+		}
+
+		// Make changes
+		metadata := getMetadata(r)
+		if metadata == nil {
+			metadata = make(map[string]string)
+		}
+		if existing, exists := metadata[key]; exists && existing == value {
+			return nil
+		}
+		metadata[key] = value
+		setMetadata(r, metadata)
+
+		// Apply patch
+		patch := client.MergeFrom(original)
+		return k8sClient.Patch(ctx, r, patch)
+	})
+
+	// Check final error and maintain original custom error message
+	if err != nil {
 		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
 			return errors.New("conflict or not found")
 		}

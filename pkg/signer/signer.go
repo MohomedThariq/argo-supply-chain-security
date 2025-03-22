@@ -27,7 +27,7 @@ func SignWithConfigOpts(ctx context.Context, ociImage string, cfg config.Config,
 	return fmt.Errorf("error occured while signing")
 }
 
-func AttestWithConfigOpts(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig, ociImage string, payload []byte) error {
+func AttestWithConfigOpts(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig, ociImage string, payload []byte) ([]any, error) {
 	switch cfg.SignerType {
 	case config.SecretSigner:
 		return attest.AttestOci(ctx, cfg, rcfg, ociImage, defaultSecretKey, payload)
@@ -37,5 +37,5 @@ func AttestWithConfigOpts(ctx context.Context, cfg config.Config, rcfg config.Ru
 		return attest.AttestOci(ctx, cfg, rcfg, ociImage, "", payload)
 	}
 
-	return fmt.Errorf("error occured while attesting")
+	return nil, fmt.Errorf("error occured while attesting")
 }

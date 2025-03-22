@@ -89,7 +89,7 @@ func SignOci(ociImage, keyRef string, ctx context.Context, cfg config.Config, rc
 	}
 	digest, ok := ref.(name.Digest)
 	if !ok {
-		return fmt.Errorf("digest not awailable in oci ref")
+		return fmt.Errorf("digest not available in oci ref")
 	}
 
 	se, err := ociremote.SignedEntity(ref, opts...)
