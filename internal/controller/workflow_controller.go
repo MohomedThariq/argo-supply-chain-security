@@ -127,7 +127,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	// get pod names associated with the workflow
-	var pods wfpr.WorkflowPodsStatus
+	var pods wfpr.WorkflowStatus
 	if err := pods.GetPodInfo(&workflow); err != nil {
 		return ctrl.Result{Requeue: true}, nil
 	}
