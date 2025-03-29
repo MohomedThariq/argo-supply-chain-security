@@ -7,14 +7,10 @@ import (
 	"strings"
 
 	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
-	"github.com/google/go-containerregistry/pkg/name"
 	intoto "github.com/in-toto/attestation/go/v1"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
-	"github.com/MohomedThariq/argo-supply-chain-security/pkg/provenance/workflow/v1alpha1"
-	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer"
 )
 
 const (
@@ -84,40 +80,24 @@ func (wfps *WorkflowStatus) validateAllPodsReconciled() error {
 }
 
 func (wfps *WorkflowStatus) AttestArtifacts(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig) error {
-	logger := log.FromContext(ctx)
-
 	subjects := []*intoto.ResourceDescriptor{}
 	for _, workflowPod := range *&wfps.PodsStatus {
 		if workflowPod.artifactsFound && workflowPod.signed {
-			imageRef, err := name.ParseReference(workflowPod.artifactInfo)
-			if err != nil {
-				return fmt.Errorf("error parsing reference: %w", err)
+			ok, _, digest := checkOCI(workflowPod.artifactInfo)
+			if ok {
+				subjects = append(subjects, &intoto.ResourceDescriptor{
+					Name: workflowPod.artifactInfo,
+					Digest: map[string]string{
+						"sha256": digest,
+					},
+				})
 			}
-			digest, ok := imageRef.(name.Digest)
-			if !ok {
-				return fmt.Errorf("digest not available in oci ref")
-			}
-			subjects = append(subjects, &intoto.ResourceDescriptor{
-				Name: workflowPod.artifactInfo,
-				Digest: map[string]string{
-					"sha256": digest.DigestStr(),
-				},
-			})
 		}
 	}
 
-	provenance, err := v1alpha1.GenerateSlsaV1Provenance(rcfg.Workflow, subjects)
-	if err != nil {
-		return fmt.Errorf("error while generating provenance: %w", err)
-	}
-
 	for _, workflowPod := range *&wfps.PodsStatus {
-		if workflowPod.artifactsFound && workflowPod.signed {
-			attestInfo, err := signer.AttestWithConfigOpts(ctx, cfg, workflowPod.artifactInfo, attestsationType, provenance)
-			if err != nil {
-				return fmt.Errorf("error wihile attesting: %w", err)
-			}
-			logger.Info("artifact attested", attestInfo...)
+		if err := workflowPod.handleProveneceAttachment(ctx, cfg, rcfg.Client, rcfg.Workflow, subjects); err != nil {
+			return err
 		}
 	}
 	return nil
