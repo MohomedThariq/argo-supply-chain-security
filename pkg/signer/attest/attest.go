@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
-	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/auth"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/cosignauth"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/sign"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/attest"
@@ -27,7 +27,7 @@ import (
 	signatureoptions "github.com/sigstore/sigstore/pkg/signature/options"
 )
 
-func AttestOci(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig, ociImage, keyRef string, payload []byte) (attestInfo []any, err error) {
+func AttestOci(ctx context.Context, cfg config.Config, ociImage, keyRef string, payload []byte) (attestInfo []any, err error) {
 	o := &options.AttestOptions{
 		Key:            keyRef,
 		RekorEntryType: "dsse",
@@ -85,7 +85,7 @@ func AttestOci(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig
 		return nil, fmt.Errorf("digest not awailable in oci ref")
 	}
 
-	ociremoteOpts, err := auth.RegistryClientOptsWithK8s(ctx, rcfg.InclusterClient, rcfg.Namespace, rcfg.Workflow)
+	ociremoteOpts, err := cosignauth.CosignRemoteAuthOptsWithKeyChain(ctx, cfg.AuthKeyChain)
 	if err != nil {
 		return nil, fmt.Errorf("constructing oci client options: %w", err)
 	}

@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
-	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/auth"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/cosignauth"
 	icosign "github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/internal/pkg/cosign"
 	ifulcio "github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/internal/pkg/cosign/fulcio"
 	ipayload "github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/internal/pkg/cosign/payload"
@@ -37,7 +37,7 @@ var (
 	signingSecretPath = ""
 )
 
-func SignOci(ociImage, keyRef string, ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig) (err error) {
+func SignOci(ociImage, keyRef string, ctx context.Context, cfg config.Config) (err error) {
 	o := &options.SignOptions{
 		Key:        keyRef,
 		TlogUpload: cfg.Transparency,
@@ -77,7 +77,7 @@ func SignOci(ociImage, keyRef string, ctx context.Context, cfg config.Config, rc
 	dd := cremote.NewDupeDetector(sv)
 
 	// Get registry auth options
-	opts, err := auth.RegistryClientOptsWithK8s(ctx, rcfg.InclusterClient, rcfg.Namespace, rcfg.Workflow)
+	opts, err := cosignauth.CosignRemoteAuthOptsWithKeyChain(ctx, cfg.AuthKeyChain)
 	if err != nil {
 		return fmt.Errorf("constructing oci client options: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,6 +31,8 @@ const (
 
 // Config contais the configurable info of argo slsa
 type Config struct {
+	AuthKeyChain authn.Keychain
+
 	SignerType string
 
 	KmsURL string

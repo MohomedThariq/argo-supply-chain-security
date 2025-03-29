@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	wfpr "github.com/MohomedThariq/argo-supply-chain-security/internal/workflow-pod-reconciler"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/auth"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/statusupdater"
 )
@@ -105,6 +106,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		Namespace:       r.Namespace,
 		Workflow:        &workflow,
 	}
+	cfg.AuthKeyChain = auth.GetAuthnKeychain(ctx, rcfg.InclusterClient, rcfg.Namespace, rcfg.Workflow)
 
 	// start securing the supply chain if enabled
 	isEnabled := workflow.Labels[enableLabel] == featureEnabled

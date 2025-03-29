@@ -15,7 +15,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/google"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	alibabaacr "github.com/mozillazg/docker-credential-acr-helper/pkg/credhelper"
-	ociremote "github.com/sigstore/cosign/v2/pkg/oci/remote"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -27,30 +26,11 @@ const (
 	ociSecretSelector = "argo.slsa.io/secret-type=oci"
 )
 
-// RegistryClientOptsWithK8s handles authentication for an oci storage
-func RegistryClientOptsWithK8s(ctx context.Context, client kubernetes.Interface, namespace string, wf *wfv1alpha1.Workflow) ([]ociremote.Option, error) {
+func GetRemoteOptsWithKeychain(ctx context.Context, keychain authn.Keychain) []remote.Option {
 	opts := []remote.Option{
 		remote.WithContext(ctx),
+		remote.WithAuthFromKeychain(keychain),
 	}
-
-	keyChains := []authn.Keychain{
-		authn.DefaultKeychain,
-		google.Keychain,
-		authn.NewKeychainFromHelper(ecr.NewECRHelper(ecr.WithLogger(io.Discard))),
-		authn.NewKeychainFromHelper(credhelper.NewACRCredentialsHelper()),
-		authn.NewKeychainFromHelper(alibabaacr.NewACRHelper().WithLoggerOut(io.Discard)),
-	}
-
-	// if kubeKeyChain, err := getAuthFromK8sServiceAccount(ctx, client, wf.Namespace, wf.Spec.ServiceAccountName); err == nil {
-	// 	opts = append(opts, remote.WithAuthFromKeychain(kubeKeyChain))
-	// }
-
-	if argoKeychain, err := getAuthFromSecrets(ctx, client, []string{namespace, wf.Namespace}); err == nil {
-		keyChains = append(keyChains, argoKeychain)
-	}
-
-	authKeyChain := authn.NewMultiKeychain(keyChains...)
-	opts = append(opts, remote.WithAuthFromKeychain(authKeyChain))
 
 	if puller, err := remote.NewPuller(opts...); err == nil {
 		opts = append(opts, remote.Reuse(puller))
@@ -60,12 +40,23 @@ func RegistryClientOptsWithK8s(ctx context.Context, client kubernetes.Interface,
 		opts = append(opts, remote.Reuse(pusher))
 	}
 
-	remoteOpts := []ociremote.Option{ociremote.WithRemoteOptions(opts...)}
-	if len(remoteOpts) == 0 {
-		return nil, fmt.Errorf("no auth mechanisms configured")
+	return opts
+}
+
+func GetAuthnKeychain(ctx context.Context, client kubernetes.Interface, namespace string, wf *wfv1alpha1.Workflow) authn.Keychain {
+	keyChains := []authn.Keychain{
+		authn.DefaultKeychain,
+		google.Keychain,
+		authn.NewKeychainFromHelper(ecr.NewECRHelper(ecr.WithLogger(io.Discard))),
+		authn.NewKeychainFromHelper(credhelper.NewACRCredentialsHelper()),
+		authn.NewKeychainFromHelper(alibabaacr.NewACRHelper().WithLoggerOut(io.Discard)),
 	}
 
-	return remoteOpts, nil
+	if argoKeychain, err := getAuthFromSecrets(ctx, client, []string{namespace, wf.Namespace}); err == nil {
+		keyChains = append(keyChains, argoKeychain)
+	}
+
+	return authn.NewMultiKeychain(keyChains...)
 }
 
 func getAuthFromK8sServiceAccount(ctx context.Context, client kubernetes.Interface, namespace, serviceAccount string) (authn.Keychain, error) {

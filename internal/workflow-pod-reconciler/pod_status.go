@@ -35,24 +35,12 @@ const (
 
 // podStatus represents the current state and metadata of a workflow pod
 type podStatus struct {
-	// podName is the name of the pod
-	podName string
-
-	// status represents the current phase of the workflow node
-	status wfv1alpha1.NodePhase
-
-	// node contains the complete status information of the workflow node
-	node wfv1alpha1.NodeStatus
-
-	// artifactsFound indicates if any OCI artifacts were found in the pod
+	podName        string
+	status         wfv1alpha1.NodePhase
+	node           wfv1alpha1.NodeStatus
 	artifactsFound bool
-
-	artifactInfo string
-
-	// signed indicates if the artifacts in the pod have been signed
-	signed bool
-
-	// reconciliation indicates if the pod has completed its reconciliation process
+	artifactInfo   string
+	signed         bool
 	reconciliation bool
 }
 
@@ -108,7 +96,7 @@ func (podStatus *podStatus) handlePodReconciliation(ctx context.Context, cfg con
 	}
 
 	// sign the artifacts if found
-	if err := podStatus.handleArtifactSigning(ctx, cfg, rcfg, rcfg.Client, pod); err != nil {
+	if err := podStatus.handleArtifactSigning(ctx, cfg, rcfg.Client, pod); err != nil {
 		return err
 	}
 
@@ -139,7 +127,7 @@ func (podStatus *podStatus) handleArtifactInfo(ctx context.Context, k8sClient cl
 	return nil
 }
 
-func (podStatus *podStatus) handleArtifactSigning(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig, k8sClient client.Client, pod *corev1.Pod) error {
+func (podStatus *podStatus) handleArtifactSigning(ctx context.Context, cfg config.Config, k8sClient client.Client, pod *corev1.Pod) error {
 	logger := log.FromContext(ctx)
 
 	if !podStatus.artifactsFound {
@@ -151,7 +139,7 @@ func (podStatus *podStatus) handleArtifactSigning(ctx context.Context, cfg confi
 		signingState := signingError
 
 		if artifactInfo, exists := pod.Annotations[artifactsAnnotation]; exists {
-			if err := signer.SignWithConfigOpts(ctx, artifactInfo, cfg, rcfg); err != nil {
+			if err := signer.SignWithConfigOpts(ctx, artifactInfo, cfg); err != nil {
 				logger.Error(err, "failed to sign artifact",
 					"pod name", pod.Name,
 					"aertifact", artifactInfo,

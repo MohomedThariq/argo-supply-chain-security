@@ -106,7 +106,7 @@ func (wfps *WorkflowPodsStatus) AttestArtifacts(ctx context.Context, cfg config.
 
 	for _, workflowPod := range *wfps {
 		if workflowPod.artifactsFound && workflowPod.signed {
-			attestInfo, err := signer.AttestWithConfigOpts(ctx, cfg, rcfg, workflowPod.artifactInfo, provenance)
+			attestInfo, err := signer.AttestWithConfigOpts(ctx, cfg, workflowPod.artifactInfo, provenance)
 			if err != nil {
 				return fmt.Errorf("error wihile attesting: %w", err)
 			}
