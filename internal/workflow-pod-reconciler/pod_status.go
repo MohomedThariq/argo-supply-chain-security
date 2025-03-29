@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/sbom"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/statusupdater"
 )
@@ -31,6 +32,11 @@ const (
 	signingCompleted string = "Completed"
 	signingError     string = "Error"
 	signingSkipped   string = "Skipped"
+
+	sbomAnnotation string = "argo.slsa.io/sbom"
+	sbomCompleted  string = "Attached"
+	sbomError      string = "Error"
+	sbomSkipped    string = "Skipped"
 )
 
 // podStatus represents the current state and metadata of a workflow pod
@@ -41,6 +47,7 @@ type podStatus struct {
 	artifactsFound bool
 	artifactInfo   string
 	signed         bool
+	sbomAttached   bool
 	reconciliation bool
 }
 
@@ -74,6 +81,8 @@ func (podStatus *podStatus) reconcilePod(ctx context.Context, cfg config.Config,
 }
 
 func (podStatus *podStatus) handlePodReconciliation(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig, pod *corev1.Pod) error {
+	logger := log.FromContext(ctx)
+
 	// in this case pod has exited with a non 0 exit code so need to skip this
 	if podStatus.status == wfv1alpha1.NodeError {
 		return podStatus.markPodAsSkipped(ctx, rcfg.Client, pod)
@@ -98,6 +107,11 @@ func (podStatus *podStatus) handlePodReconciliation(ctx context.Context, cfg con
 	// sign the artifacts if found
 	if err := podStatus.handleArtifactSigning(ctx, cfg, rcfg.Client, pod); err != nil {
 		return err
+	}
+
+	// generate sbom for the artifacts found
+	if err := podStatus.handleSBOMgeneration(ctx, cfg, rcfg.Client, pod); err != nil {
+		logger.Error(err, "failed to generate sbom for some artifact")
 	}
 
 	return podStatus.updateFinalStatus(ctx, rcfg.Client, pod)
@@ -137,26 +151,52 @@ func (podStatus *podStatus) handleArtifactSigning(ctx context.Context, cfg confi
 	if _, exists := pod.Annotations[signedAnnotation]; !exists {
 		status := false
 		signingState := signingError
+		artifactInfo := podStatus.artifactInfo
 
-		if artifactInfo, exists := pod.Annotations[artifactsAnnotation]; exists {
-			if err := signer.SignWithConfigOpts(ctx, artifactInfo, cfg); err != nil {
-				logger.Error(err, "failed to sign artifact",
-					"pod name", pod.Name,
-					"aertifact", artifactInfo,
-				)
-			} else {
-				status = true
-				signingState = signingCompleted
-			}
+		if err := signer.SignWithConfigOpts(ctx, artifactInfo, cfg); err != nil {
+			logger.Error(err, "failed to sign artifact",
+				"pod name", pod.Name,
+				"aertifact", artifactInfo,
+			)
+		} else {
+			status = true
+			signingState = signingCompleted
 		}
-
-		// TODO: generate SBOMs for supported artifacts
 
 		podStatus.signed = status
 		return statusupdater.PatchAnnotations(ctx, k8sClient, pod, signedAnnotation, signingState)
 	}
 
 	podStatus.signed = pod.Annotations[signedAnnotation] == signingCompleted
+	return nil
+}
+
+func (podStatus *podStatus) handleSBOMgeneration(ctx context.Context, cfg config.Config, k8sClient client.Client, pod *corev1.Pod) error {
+	logger := log.FromContext(ctx)
+
+	if !podStatus.artifactsFound {
+		return statusupdater.PatchAnnotations(ctx, k8sClient, pod, sbomAnnotation, sbomSkipped)
+	}
+
+	if _, exists := pod.Annotations[sbomAnnotation]; !exists {
+		status := false
+		sbomState := sbomError
+		artifactInfo := podStatus.artifactInfo
+
+		if err := sbom.GenerateSBOMWithConfigOpts(ctx, artifactInfo, cfg); err != nil {
+			logger.Error(err, "failed to create sbom for artifact",
+				"pod name", pod.Name,
+				"aertifact", artifactInfo,
+			)
+		} else {
+			status = true
+			sbomState = sbomCompleted
+		}
+
+		podStatus.sbomAttached = status
+		return statusupdater.PatchAnnotations(ctx, k8sClient, pod, sbomState, sbomState)
+	}
+
 	return nil
 }
 
@@ -193,6 +233,10 @@ func (podStatus *podStatus) currentRconsiliationStatus(pod *corev1.Pod) {
 
 	if signed, exists := pod.Annotations[signedAnnotation]; exists && signed != signingError {
 		podStatus.signed = true
+	}
+
+	if sbom, exists := pod.Annotations[sbomAnnotation]; exists && sbom != sbomError {
+		podStatus.sbomAttached = true
 	}
 
 }
