@@ -159,6 +159,7 @@ func (podStatus *podStatus) handleArtifactSigning(ctx context.Context, cfg confi
 				"aertifact", artifactInfo,
 			)
 		} else {
+			logger.Info("artifact signed", "artifact", artifactInfo)
 			status = true
 			signingState = signingCompleted
 		}
