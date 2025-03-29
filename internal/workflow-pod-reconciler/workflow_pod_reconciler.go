@@ -9,11 +9,16 @@ import (
 	wfv1alpha1 "github.com/argoproj/argo-workflows/v3/pkg/apis/workflow/v1alpha1"
 	"github.com/google/go-containerregistry/pkg/name"
 	intoto "github.com/in-toto/attestation/go/v1"
+	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/provenance/workflow/v1alpha1"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer"
+)
+
+const (
+	attestsationType = options.PredicateSLSA1
 )
 
 // WorkflowPodsStatus represents the current state and metadata of all the workflow pods
@@ -108,7 +113,7 @@ func (wfps *WorkflowStatus) AttestArtifacts(ctx context.Context, cfg config.Conf
 
 	for _, workflowPod := range *&wfps.PodsStatus {
 		if workflowPod.artifactsFound && workflowPod.signed {
-			attestInfo, err := signer.AttestWithConfigOpts(ctx, cfg, workflowPod.artifactInfo, provenance)
+			attestInfo, err := signer.AttestWithConfigOpts(ctx, cfg, workflowPod.artifactInfo, attestsationType, provenance)
 			if err != nil {
 				return fmt.Errorf("error wihile attesting: %w", err)
 			}

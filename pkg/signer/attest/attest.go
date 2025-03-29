@@ -27,7 +27,7 @@ import (
 	signatureoptions "github.com/sigstore/sigstore/pkg/signature/options"
 )
 
-func AttestOci(ctx context.Context, cfg config.Config, ociImage, keyRef string, payload []byte) (attestInfo []any, err error) {
+func AttestOci(ctx context.Context, cfg config.Config, ociImage, keyRef, payloadType string, payload []byte) (attestInfo []any, err error) {
 	o := &options.AttestOptions{
 		Key:            keyRef,
 		RekorEntryType: "dsse",
@@ -37,7 +37,7 @@ func AttestOci(ctx context.Context, cfg config.Config, ociImage, keyRef string, 
 		},
 		Predicate: options.PredicateLocalOptions{
 			PredicateOptions: options.PredicateOptions{
-				Type: options.PredicateSLSA1,
+				Type: payloadType,
 			},
 		},
 	}

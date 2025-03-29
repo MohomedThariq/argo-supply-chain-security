@@ -27,14 +27,14 @@ func SignWithConfigOpts(ctx context.Context, ociImage string, cfg config.Config)
 	return fmt.Errorf("error occured while signing")
 }
 
-func AttestWithConfigOpts(ctx context.Context, cfg config.Config, ociImage string, payload []byte) ([]any, error) {
+func AttestWithConfigOpts(ctx context.Context, cfg config.Config, ociImage, payloadType string, payload []byte) ([]any, error) {
 	switch cfg.SignerType {
 	case config.SecretSigner:
-		return attest.AttestOci(ctx, cfg, ociImage, DefaultSecretKey, payload)
+		return attest.AttestOci(ctx, cfg, ociImage, DefaultSecretKey, payloadType, payload)
 	case config.KmsSigner:
-		return attest.AttestOci(ctx, cfg, ociImage, cfg.KmsURL, payload)
+		return attest.AttestOci(ctx, cfg, ociImage, cfg.KmsURL, payloadType, payload)
 	case config.FulcioSigner:
-		return attest.AttestOci(ctx, cfg, ociImage, "", payload)
+		return attest.AttestOci(ctx, cfg, ociImage, "", payloadType, payload)
 	}
 
 	return nil, fmt.Errorf("error occured while attesting")

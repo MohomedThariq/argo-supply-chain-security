@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-func GenerateSBOMforOCI(ctx context.Context, cfg config.Config, keyRef, oci string) error {
+func GenerateSBOMforOCI(ctx context.Context, cfg config.Config, keyRef, oci, payloadType string) error {
 	logger := log.FromContext(ctx)
 
 	manifest, err := crane.GetManifest(cfg.AuthKeyChain, oci)
@@ -46,7 +46,7 @@ func GenerateSBOMforOCI(ctx context.Context, cfg config.Config, keyRef, oci stri
 				logger.Error(err, "generating SBOM with syft", "oci", oci, "platform", manifestDescriptor.Platform.String())
 				continue
 			}
-			if _, err := attest.AttestOci(ctx, cfg, refWithChildDigest, keyRef, sbom); err != nil {
+			if _, err := attest.AttestOci(ctx, cfg, refWithChildDigest, keyRef, payloadType, sbom); err != nil {
 				failed = true
 				logger.Error(err, "attesting SBOM", "oci", refWithChildDigest, "platform", manifestDescriptor.Platform.String())
 				continue
@@ -64,7 +64,7 @@ func GenerateSBOMforOCI(ctx context.Context, cfg config.Config, keyRef, oci stri
 		logger.Error(err, "generating SBOM with syft", "oci", oci)
 		return fmt.Errorf("generating SBOM with syft: %w", err)
 	}
-	if _, err := attest.AttestOci(ctx, cfg, oci, keyRef, sbom); err != nil {
+	if _, err := attest.AttestOci(ctx, cfg, oci, keyRef, payloadType, sbom); err != nil {
 		logger.Error(err, "attesting SBOM", "oci", oci)
 		return fmt.Errorf("attesting SBOM: %w", err)
 	}
