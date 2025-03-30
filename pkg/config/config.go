@@ -27,6 +27,10 @@ const (
 	defaultTransparencyURL = options.DefaultRekorURL
 
 	workloadIdentityKey = "oci.workload.Identity.enabled"
+
+	sbomGenerationKey = "sbom.generation.enabled"
+	// sbomTypeKey       = "sbom.generation.format"
+	// defaultSbomType   = options.PredicateCycloneDX
 )
 
 // Config contais the configurable info of argo slsa
@@ -39,6 +43,8 @@ type Config struct {
 
 	Transparency    bool
 	TransparencyURL string
+
+	SbomGeneration bool
 }
 
 // New constructs the Config type using configData
@@ -66,6 +72,12 @@ func New(configData map[string]string) Config {
 		config.TransparencyURL = transparencyURL
 	} else {
 		config.TransparencyURL = defaultTransparencyURL
+	}
+
+	if sbomGeneration, ok := configData[sbomGenerationKey]; ok && strings.ToLower(sbomGeneration) == "true" {
+		config.SbomGeneration = true
+	} else {
+		config.SbomGeneration = false
 	}
 
 	return *config

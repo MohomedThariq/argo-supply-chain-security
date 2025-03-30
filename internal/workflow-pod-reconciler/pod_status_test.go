@@ -18,7 +18,6 @@ func TestHandlePodReconciliation(t *testing.T) {
 	tests := []struct {
 		name           string
 		podStatus      *podStatus
-		pod            *corev1.Pod
 		expectedError  bool
 		expectedStatus string
 	}{
@@ -26,12 +25,12 @@ func TestHandlePodReconciliation(t *testing.T) {
 			name: "Node in error state should mark as skipped",
 			podStatus: &podStatus{
 				podName: "test-pod",
-				status:  wfv1alpha1.NodeError,
-			},
-			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
+				pod: &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pod",
+					},
 				},
+				status: wfv1alpha1.NodeError,
 			},
 			expectedError:  false,
 			expectedStatus: reconciliationSkipped,
@@ -40,15 +39,15 @@ func TestHandlePodReconciliation(t *testing.T) {
 			name: "Pod not in succeeded state should mark as skipped",
 			podStatus: &podStatus{
 				podName: "test-pod",
-				status:  wfv1alpha1.NodeSucceeded,
-			},
-			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
+				pod: &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pod",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodFailed,
+					},
 				},
-				Status: corev1.PodStatus{
-					Phase: corev1.PodFailed,
-				},
+				status: wfv1alpha1.NodeSucceeded,
 			},
 			expectedError:  false,
 			expectedStatus: reconciliationSkipped,
@@ -58,13 +57,13 @@ func TestHandlePodReconciliation(t *testing.T) {
 			podStatus: &podStatus{
 				podName: "test-pod",
 				status:  wfv1alpha1.NodeSucceeded,
-			},
-			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-				},
-				Status: corev1.PodStatus{
-					Phase: corev1.PodSucceeded,
+				pod: &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pod",
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodSucceeded,
+					},
 				},
 			},
 			expectedError:  false,
@@ -74,18 +73,18 @@ func TestHandlePodReconciliation(t *testing.T) {
 			name: "Happy path with artifacts but no signing should mark as error",
 			podStatus: &podStatus{
 				podName: "test-pod",
-				status:  wfv1alpha1.NodeSucceeded,
-			},
-			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-					Annotations: map[string]string{
-						artifactsAnnotation: "artifact1",
+				pod: &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pod",
+						Annotations: map[string]string{
+							artifactsAnnotation: "artifact1",
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodSucceeded,
 					},
 				},
-				Status: corev1.PodStatus{
-					Phase: corev1.PodSucceeded,
-				},
+				status: wfv1alpha1.NodeSucceeded,
 			},
 			expectedError:  false,
 			expectedStatus: reconciliationError,
@@ -94,19 +93,19 @@ func TestHandlePodReconciliation(t *testing.T) {
 			name: "Happy path with artifacts and signing should mark as completed",
 			podStatus: &podStatus{
 				podName: "test-pod",
-				status:  wfv1alpha1.NodeSucceeded,
-			},
-			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-					Annotations: map[string]string{
-						artifactsAnnotation: "artifact1",
-						signedAnnotation:    signingCompleted,
+				pod: &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-pod",
+						Annotations: map[string]string{
+							artifactsAnnotation: "artifact1",
+							signedAnnotation:    signingCompleted,
+						},
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodSucceeded,
 					},
 				},
-				Status: corev1.PodStatus{
-					Phase: corev1.PodSucceeded,
-				},
+				status: wfv1alpha1.NodeSucceeded,
 			},
 			expectedError:  false,
 			expectedStatus: reconciliationCompleted,
@@ -118,13 +117,13 @@ func TestHandlePodReconciliation(t *testing.T) {
 			scheme := runtime.NewScheme()
 			_ = corev1.AddToScheme(scheme)
 
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.pod).Build()
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.podStatus.pod).Build()
 
 			runtimrconfig := config.RuntimeConfig{
 				Client: fakeClient,
 			}
 
-			err := tt.podStatus.handlePodReconciliation(context.Background(), config.Config{}, runtimrconfig, tt.pod)
+			err := tt.podStatus.handlePodReconciliation(context.Background(), config.Config{}, runtimrconfig)
 
 			if tt.expectedError {
 				assert.Error(t, err)
@@ -133,7 +132,7 @@ func TestHandlePodReconciliation(t *testing.T) {
 
 				// Verify pod status annotation
 				updatedPod := &corev1.Pod{}
-				err = fakeClient.Get(context.Background(), client.ObjectKey{Name: tt.pod.Name}, updatedPod)
+				err = fakeClient.Get(context.Background(), client.ObjectKey{Name: tt.podStatus.pod.Name}, updatedPod)
 				assert.NoError(t, err)
 
 				if status, exists := updatedPod.Annotations[podStatusAnnotation]; exists {

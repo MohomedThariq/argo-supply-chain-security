@@ -12,3 +12,4 @@ data:
   # cosign, kms, fulcio
   artifacts.signer: cosign
   signer.transparency.enabled: "true"
+  sbom.generation.enabled: "true"

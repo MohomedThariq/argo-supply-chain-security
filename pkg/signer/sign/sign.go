@@ -15,7 +15,6 @@ import (
 	irekor "github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/internal/pkg/cosign/rekor"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/fulcio"
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/fulcio/fulcioverifier"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/generate"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/rekor"
@@ -27,10 +26,12 @@ import (
 	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/sigstore/cosign/v2/pkg/oci/mutate"
 	ociremote "github.com/sigstore/cosign/v2/pkg/oci/remote"
+	"github.com/sigstore/cosign/v2/pkg/providers"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/signature/kms"
 	sigPayload "github.com/sigstore/sigstore/pkg/signature/payload"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var (
@@ -116,11 +117,7 @@ func SignerFromKeyOpts(ctx context.Context, ko options.KeyOpts, getKmsSigner boo
 		return sv, nil
 	}
 
-	sv, err = signerFromNewKey()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate ephemaral keys %w", err)
-	}
-	return keylessSigner(ctx, ko, sv)
+	return keylessSigner(ctx)
 }
 
 func signerFromKeyRef(ctx context.Context, keyRef string, getKmsSigner bool) (*sign.SignerVerifier, error) {
@@ -215,6 +212,62 @@ func kmsSigner(ctx context.Context, keyRef string) (signature.SignerVerifier, er
 	return sv, nil
 }
 
+var (
+	identityTokenFilPath = "/var/run/sigstore/cosign"
+)
+
+const (
+	customTokenPathProvider = "filesystem-custom-path"
+	defaultOIDCClientID     = "sigstore"
+	defaultFulcioAddress    = "https://fulcio.sigstore.dev"
+	defaultOIDCIssuer       = "https://oauth2.sigstore.dev/auth"
+)
+
+func keylessSigner(ctx context.Context) (*sign.SignerVerifier, error) {
+	logger := log.FromContext(ctx)
+
+	providersEnabled := providers.Enabled(ctx)
+	if identityTokenFilPath != "" {
+		providersEnabled = true
+	}
+	if !providersEnabled {
+		return nil, fmt.Errorf("no auth provider for fulcio is enabled")
+	}
+
+	var token string
+	var err error
+	logger.Info("Attempting to get id token from provider")
+	token, err = providers.Provide(ctx, defaultOIDCClientID)
+	if err != nil {
+		return nil, fmt.Errorf("getting token from provider: %w", err)
+	}
+
+	logger.Info("Signing with fulcio ...")
+	privetKey, err := cosign.GeneratePrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("error generating keypair: %w", err)
+	}
+	signer, err := signature.LoadECDSASignerVerifier(privetKey, crypto.SHA256)
+	if err != nil {
+		return nil, fmt.Errorf("error loading sigstore signer: %w", err)
+	}
+	k, err := fulcio.NewSigner(ctx, options.KeyOpts{
+		FulcioURL:    defaultFulcioAddress,
+		IDToken:      token,
+		OIDCIssuer:   defaultOIDCIssuer,
+		OIDCClientID: defaultOIDCClientID,
+	}, signer)
+	if err != nil {
+		return nil, fmt.Errorf("getting Fulcio signer: %w", err)
+	}
+
+	return &sign.SignerVerifier{
+		SignerVerifier: signer,
+		Cert:           k.Cert,
+		Chain:          k.Chain,
+	}, nil
+}
+
 func signerFromNewKey() (*sign.SignerVerifier, error) {
 	privKey, err := cosign.GeneratePrivateKey()
 	if err != nil {
@@ -230,22 +283,22 @@ func signerFromNewKey() (*sign.SignerVerifier, error) {
 	}, nil
 }
 
-func keylessSigner(ctx context.Context, ko options.KeyOpts, sv *sign.SignerVerifier) (*sign.SignerVerifier, error) {
-	var (
-		k   *fulcio.Signer
-		err error
-	)
+// func keylessSigner(ctx context.Context, ko options.KeyOpts, sv *sign.SignerVerifier) (*sign.SignerVerifier, error) {
+// 	var (
+// 		k   *fulcio.Signer
+// 		err error
+// 	)
 
-	if k, err = fulcioverifier.NewSigner(ctx, ko, sv); err != nil {
-		return nil, fmt.Errorf("getting key from Fulcio: %w", err)
-	}
+// 	if k, err = fulcioverifier.NewSigner(ctx, ko, sv); err != nil {
+// 		return nil, fmt.Errorf("getting key from Fulcio: %w", err)
+// 	}
 
-	return &sign.SignerVerifier{
-		Cert:           k.Cert,
-		Chain:          k.Chain,
-		SignerVerifier: k,
-	}, nil
-}
+// 	return &sign.SignerVerifier{
+// 		Cert:           k.Cert,
+// 		Chain:          k.Chain,
+// 		SignerVerifier: k,
+// 	}, nil
+// }
 
 func signDigest(ctx context.Context, digest name.Digest, ko options.KeyOpts, signOpts options.SignOptions,
 	annotations map[string]interface{},

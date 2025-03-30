@@ -66,6 +66,8 @@ const (
 	reconcileError      string = "Error"
 
 	conflictOrNotFoundError = "conflict or not found"
+
+	requeueAfterSeconds = 5
 )
 
 //+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;patch
@@ -137,7 +139,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		switch {
 		case err.Error() == "not all workflow pods have been reconciled":
 			logger.Info("Waiting for tasks to execute", "workflow", workflow.Name)
-			return ctrl.Result{RequeueAfter: time.Second * 10}, nil
+			return ctrl.Result{RequeueAfter: time.Second * requeueAfterSeconds}, nil
 
 		case strings.HasPrefix(err.Error(), "error while signing artifacts found in "):
 			if result, err := r.updateWorkflowStatus(ctx, &workflow, reconcileError); err != nil {

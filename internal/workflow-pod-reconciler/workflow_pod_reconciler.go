@@ -19,7 +19,7 @@ const (
 
 // WorkflowPodsStatus represents the current state and metadata of all the workflow pods
 type WorkflowStatus struct {
-	PodsStatus []podStatus
+	PodsStatus []*podStatus
 }
 
 // GetPodInfo collects all thformation of workflow pods
@@ -28,10 +28,10 @@ func (wfps *WorkflowStatus) GetPodInfo(workflow *wfv1alpha1.Workflow) error {
 		return errors.New("no pods found in the workflow")
 	}
 
-	var podsStatus []podStatus
+	var podsStatus []*podStatus
 	for _, node := range workflow.Status.Nodes {
 		if node.Type == "Pod" {
-			podsStatus = append(podsStatus, podStatus{
+			podsStatus = append(podsStatus, &podStatus{
 				podName: formatPodName(workflow.Name, node.TemplateName, node.ID),
 				status:  node.Phase,
 				node:    node,
@@ -43,7 +43,7 @@ func (wfps *WorkflowStatus) GetPodInfo(workflow *wfv1alpha1.Workflow) error {
 		return errors.New("no pods found in the workflow")
 	}
 
-	*&wfps.PodsStatus = podsStatus
+	wfps.PodsStatus = podsStatus
 	return nil
 }
 
@@ -57,8 +57,7 @@ func formatPodName(workflowName, templateName, nodeID string) string {
 
 // Reconcile will process all the workflow pods & secure artifacts created from it
 func (wfps *WorkflowStatus) Reconcile(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig) error {
-	for i := range *&wfps.PodsStatus {
-		podStatus := &(*&wfps.PodsStatus)[i]
+	for _, podStatus := range wfps.PodsStatus {
 		if err := podStatus.reconcilePod(ctx, cfg, rcfg); err != nil {
 			return err
 		}
@@ -68,7 +67,7 @@ func (wfps *WorkflowStatus) Reconcile(ctx context.Context, cfg config.Config, rc
 }
 
 func (wfps *WorkflowStatus) validateAllPodsReconciled() error {
-	for _, workflowPod := range *&wfps.PodsStatus {
+	for _, workflowPod := range wfps.PodsStatus {
 		if !workflowPod.reconciliation {
 			return errors.New("not all workflow pods have been reconciled")
 		}
@@ -81,7 +80,7 @@ func (wfps *WorkflowStatus) validateAllPodsReconciled() error {
 
 func (wfps *WorkflowStatus) AttestArtifacts(ctx context.Context, cfg config.Config, rcfg config.RuntimeConfig) error {
 	subjects := []*intoto.ResourceDescriptor{}
-	for _, workflowPod := range *&wfps.PodsStatus {
+	for _, workflowPod := range wfps.PodsStatus {
 		if workflowPod.artifactsFound && workflowPod.signed {
 			ok, _, digest := checkOCI(workflowPod.artifactInfo)
 			if ok {
@@ -95,7 +94,7 @@ func (wfps *WorkflowStatus) AttestArtifacts(ctx context.Context, cfg config.Conf
 		}
 	}
 
-	for _, workflowPod := range *&wfps.PodsStatus {
+	for _, workflowPod := range wfps.PodsStatus {
 		if err := workflowPod.handleProveneceAttachment(ctx, cfg, rcfg.Client, rcfg.Workflow, subjects); err != nil {
 			return err
 		}

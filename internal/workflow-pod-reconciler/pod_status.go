@@ -122,8 +122,10 @@ func (podStatus *podStatus) handlePodReconciliation(ctx context.Context, cfg con
 	}
 
 	// generate sbom for the artifacts found
-	if err := podStatus.handleSBOMgeneration(ctx, cfg, rcfg.Client); err != nil {
-		logger.Error(err, "failed to generate sbom for some artifact")
+	if cfg.SbomGeneration {
+		if err := podStatus.handleSBOMgeneration(ctx, cfg, rcfg.Client); err != nil {
+			logger.Error(err, "failed to generate sbom for some artifact")
+		}
 	}
 
 	return podStatus.updateFinalStatus(ctx, rcfg.Client, podStatus.pod)
@@ -225,7 +227,7 @@ func (podStatus *podStatus) handleSBOMgeneration(ctx context.Context, cfg config
 		}
 
 		podStatus.sbomAttached = status
-		return statusupdater.PatchAnnotations(ctx, k8sClient, podStatus.pod, sbomState, sbomCompleted)
+		return statusupdater.PatchAnnotations(ctx, k8sClient, podStatus.pod, sbomAnnotation, sbomState)
 	}
 
 	return nil
@@ -264,15 +266,15 @@ func (podStatus *podStatus) currentRconsiliationStatus(pod *corev1.Pod) {
 		podStatus.artifactInfo = artifacts
 	}
 
-	if signed, exists := pod.Annotations[signedAnnotation]; exists && signed != signingError {
+	if _, exists := pod.Annotations[signedAnnotation]; exists {
 		podStatus.signed = true
 	}
 
-	if sbom, exists := pod.Annotations[sbomAnnotation]; exists && sbom != sbomError {
+	if _, exists := pod.Annotations[sbomAnnotation]; exists {
 		podStatus.sbomAttached = true
 	}
 
-	if provenance, exists := pod.Annotations[provenanceAnnotation]; exists && provenance != provenanceError {
+	if _, exists := pod.Annotations[provenanceAnnotation]; exists {
 		podStatus.provenanceAttached = true
 	}
 }
@@ -305,10 +307,11 @@ func (podStatus *podStatus) handleProveneceAttachment(ctx context.Context, cfg c
 	logger := log.FromContext(ctx)
 
 	if !podStatus.artifactsFound {
+		fmt.Println("two")
 		return statusupdater.PatchAnnotations(ctx, k8sClient, podStatus.pod, provenanceAnnotation, provenanceSkipped)
 	}
 
-	if _, exists := podStatus.pod.Annotations[podStatusAnnotation]; !exists && podStatus.signed {
+	if _, exists := podStatus.pod.Annotations[provenanceAnnotation]; !exists && podStatus.signed {
 		status := false
 		provenenceState := sbomError
 		artifactInfo := podStatus.artifactInfo
@@ -330,7 +333,7 @@ func (podStatus *podStatus) handleProveneceAttachment(ctx context.Context, cfg c
 		}
 
 		podStatus.sbomAttached = status
-		return statusupdater.PatchAnnotations(ctx, k8sClient, podStatus.pod, provenenceState, provenanceCompleted)
+		return statusupdater.PatchAnnotations(ctx, k8sClient, podStatus.pod, provenanceAnnotation, provenenceState)
 	}
 
 	return nil
