@@ -39,8 +39,8 @@ spec:
               - name: revision
                 value: "{{inputs.parameters.revision}}"
           withItems:
-            - { image: "mothlk/hello-world-1:0.1.0", context: "/source/test/build-src/docker/hello-world-1" }
-            - { image: "mothlk/hello-world-2:0.1.0", context: "/source/test/build-src/docker/hello-world-2" }
+            - { image: "1234thariq/hello-world-1:0.1.0", context: "/source/test/build-src/docker/hello-world-1" }
+            - { image: "1234thariq/hello-world-2:0.1.0", context: "/source/test/build-src/docker/hello-world-2" }
 
   - name: build-and-push-docker
     inputs:
