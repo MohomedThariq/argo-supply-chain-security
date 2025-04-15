@@ -3,18 +3,22 @@ package attest
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/cosignauth"
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/signer/sign"
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/attest"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/generate"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/rekor"
 	csign "github.com/sigstore/cosign/v2/cmd/cosign/cli/sign"
 	"github.com/sigstore/cosign/v2/pkg/cosign"
+	"github.com/sigstore/cosign/v2/pkg/cosign/attestation"
 	cbundle "github.com/sigstore/cosign/v2/pkg/cosign/bundle"
 	cremote "github.com/sigstore/cosign/v2/pkg/cosign/remote"
 	"github.com/sigstore/cosign/v2/pkg/oci/mutate"
@@ -27,7 +31,7 @@ import (
 	signatureoptions "github.com/sigstore/sigstore/pkg/signature/options"
 )
 
-func AttestOci(ctx context.Context, cfg config.Config, ociImage, keyRef, payloadType string, payload []byte) (attestInfo []any, err error) {
+func AttestOci(ctx context.Context, cfg config.Config, ociImage, keyRef, payloadType string, predicate []byte) (attestInfo []any, err error) {
 	o := &options.AttestOptions{
 		Key:            keyRef,
 		RekorEntryType: "dsse",
@@ -84,6 +88,7 @@ func AttestOci(ctx context.Context, cfg config.Config, ociImage, keyRef, payload
 	if !ok {
 		return nil, fmt.Errorf("digest not awailable in oci ref")
 	}
+	h, _ := v1.NewHash(digest.Identifier())
 
 	ociremoteOpts, err := cosignauth.CosignRemoteAuthOptsWithKeyChain(ctx, cfg.AuthKeyChain)
 	if err != nil {
@@ -97,6 +102,29 @@ func AttestOci(ctx context.Context, cfg config.Config, ociImage, keyRef, payload
 	defer sv.Close()
 	wrapped := dsse.WrapSigner(sv, types.IntotoPayloadType)
 	dd := cremote.NewDupeDetector(sv)
+
+	var payload []byte
+	if !strings.HasPrefix(c.PredicateType, "slsa") {
+		sh, err := attestation.GenerateStatement(attestation.GenerateOpts{
+			Predicate: bytes.NewReader(predicate),
+			Type:      c.PredicateType,
+			Digest:    h.Hex,
+			Repo:      digest.Repository.String(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("generating statement: %w", err)
+		}
+
+		payload, err = json.Marshal(sh)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling payload: %w", err)
+		}
+	} else {
+		payload = predicate
+	}
+
+	// #################################################
+	fmt.Println("payload", string(payload))
 
 	signedPayload, err := wrapped.SignMessage(bytes.NewReader(payload), signatureoptions.WithContext(ctx))
 	if err != nil {

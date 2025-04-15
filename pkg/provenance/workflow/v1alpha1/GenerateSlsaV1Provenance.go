@@ -27,8 +27,5 @@ func GenerateSlsaV1Provenance(wf *wfv1alpha1.Workflow, sub []*intoto.ResourceDes
 		return nil, err
 	}
 
-	marshalOpts := protojson.MarshalOptions{
-		Indent: "  ", // Use 2 spaces for indentation
-	}
-	return marshalOpts.Marshal(&provenance)
+	return protojson.Marshal(&provenance)
 }

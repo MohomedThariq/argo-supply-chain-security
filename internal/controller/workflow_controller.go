@@ -67,7 +67,7 @@ const (
 
 	conflictOrNotFoundError = "conflict or not found"
 
-	requeueAfterSeconds = 5
+	requeueAfterSeconds = 0
 )
 
 //+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;patch

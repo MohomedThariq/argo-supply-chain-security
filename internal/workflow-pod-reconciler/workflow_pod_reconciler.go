@@ -82,10 +82,11 @@ func (wfps *WorkflowStatus) AttestArtifacts(ctx context.Context, cfg config.Conf
 	subjects := []*intoto.ResourceDescriptor{}
 	for _, workflowPod := range wfps.PodsStatus {
 		if workflowPod.artifactsFound && workflowPod.signed {
-			ok, _, digest := checkOCI(workflowPod.artifactInfo)
+			ok, ref, digest := checkOCI(workflowPod.artifactInfo)
 			if ok {
+				digest = strings.TrimPrefix(digest, "sha256:")
 				subjects = append(subjects, &intoto.ResourceDescriptor{
-					Name: workflowPod.artifactInfo,
+					Name: ref,
 					Digest: map[string]string{
 						"sha256": digest,
 					},

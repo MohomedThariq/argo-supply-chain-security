@@ -141,7 +141,7 @@ func checkOCI(oci string) (ok bool, ociRef, ociDigest string) {
 		return false, "", ""
 	}
 
-	return true, ref.Name(), digest.DigestStr()
+	return true, ref.Context().RegistryStr() + "/" + ref.Context().RepositoryStr(), digest.DigestStr()
 }
 
 func (podStatus *podStatus) handleArtifactInfo(ctx context.Context, k8sClient client.Client) error {
@@ -219,7 +219,7 @@ func (podStatus *podStatus) handleSBOMgeneration(ctx context.Context, cfg config
 		if err := sbom.GenerateSBOMWithConfigOpts(ctx, artifactInfo, sbomType, cfg); err != nil {
 			logger.Error(err, "failed to create sbom for artifact",
 				"pod name", podStatus.pod.Name,
-				"aertifact", artifactInfo,
+				"artifact", artifactInfo,
 			)
 		} else {
 			status = true
@@ -307,7 +307,6 @@ func (podStatus *podStatus) handleProveneceAttachment(ctx context.Context, cfg c
 	logger := log.FromContext(ctx)
 
 	if !podStatus.artifactsFound {
-		fmt.Println("two")
 		return statusupdater.PatchAnnotations(ctx, k8sClient, podStatus.pod, provenanceAnnotation, provenanceSkipped)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"github.com/MohomedThariq/argo-supply-chain-security/pkg/provenance/slsa/common"
 	slsav1prov "github.com/in-toto/attestation/go/predicates/provenance/v1"
 	intoto "github.com/in-toto/attestation/go/v1"
+	"github.com/in-toto/in-toto-golang/in_toto"
 	slsav1 "github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v1"
 )
 
@@ -19,7 +20,7 @@ func GenerateProvenance(bd *slsav1prov.BuildDefinition, rd *slsav1prov.RunDetail
 	}
 
 	return intoto.Statement{
-		Type:          intoto.StatementTypeUri,
+		Type:          in_toto.StatementInTotoV01,
 		PredicateType: slsav1.PredicateSLSAProvenance,
 		Subject:       sub,
 		Predicate:     predicateStruct,
