@@ -123,9 +123,6 @@ func AttestOci(ctx context.Context, cfg config.Config, ociImage, keyRef, payload
 		payload = predicate
 	}
 
-	// #################################################
-	fmt.Println("payload", string(payload))
-
 	signedPayload, err := wrapped.SignMessage(bytes.NewReader(payload), signatureoptions.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("signing: %w", err)
