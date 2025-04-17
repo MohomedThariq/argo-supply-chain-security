@@ -367,7 +367,7 @@ setup-env: ## Setup the environment with k3d to run the controller.
 		echo "${K3D_CLUSTER_NAME} is available in k3d..."; \
 	else \
 		echo "Test cluster not found in k3d, creating..."; \
-		k3d cluster create ${K3D_CLUSTER_NAME} -v "${PWD}:/workspace@agent:*" -v "${PWD}:/workspace@server:*"; \
+		k3d cluster create ${K3D_CLUSTER_NAME}; \
 	fi
 
 	@if k3d cluster list | grep -q "${K3D_CLUSTER_NAME}.*1/1"; then \
@@ -425,7 +425,9 @@ setup-env: ## Setup the environment with k3d to run the controller.
 		echo "Creating secret docker-hub-credentials..."; \
 		read -p "Enter Docker Hub Username: " DOCKER_USERNAME; \
 		read -s -p "Enter Docker Hub Password: " DOCKER_PASSWORD; \
-		kubectl create secret docker-registry docker-hub-credentials --docker-server=https://index.docker.io/v1/ --docker-username=$$DOCKER_USERNAME --docker-password=$$DOCKER_PASSWORD; \
+		kubectl create secret docker-registry docker-hub-credentials --docker-server=https://index.docker.io/v1/ --docker-username=$$DOCKER_USERNAME --docker-password=$$DOCKER_PASSWORD --dry-run=client -o yaml | \
+		kubectl label -f - argo.slsa.io/secret-type=oci --local -o yaml | \
+		kubectl apply -f -; \
 	fi
 
 .PHONY: teardown-env
@@ -474,24 +476,34 @@ build-and-deploy-controller: ## Build and deploy the controller to the k3d clust
 	$(MAKE) docker-build
 	$(MAKE) import-image-to-k3d
 	$(MAKE) deploy
+	$(MAKE) generate-key-pair
 
 .PHONY: remove-controller
 remove-controller: ## Remove the controller from the k3d cluster
 	$(MAKE) undeploy
 
+.PHONY: generate-key-pair
+generate-key-pair: ## Generate cosign keypair in environment
+	@if ! command -v cosign &> /dev/null; then \
+		echo "cosign not found, installing..."; \
+		wget "https://github.com/sigstore/cosign/releases/download/v2.4.2/cosign-linux-amd64"; \
+		sudo mv cosign-linux-amd64 /usr/local/bin/cosign; \
+		sudo chmod +x /usr/local/bin/cosign; \
+	else \
+		echo "cosign is already installed..."; \
+	fi
+
+	cosign generate-key-pair k8s://argo-slsa/signing-secret
+
 ##@ argo-server
 .PHONY: setup-user
 setup-user: ## Setups a user for argo workflows UI
-	@if ! kubectl get clusterrole argowork &> /dev/null; then \
-		kubectl create clusterrole argowork --verb=get,list,update --resource=workflows.argoproj.io; \
-	fi
-
 	@if ! kubectl get sa argowork -n argo &> /dev/null; then \
 		kubectl create sa argowork -n argo; \
 	fi
 
 	@if ! kubectl get clusterrolebinding argowork &> /dev/null; then \
-		kubectl create clusterrolebinding argowork --clusterrole=argowork --serviceaccount=argo:argowork; \
+		kubectl create clusterrolebinding argowork --clusterrole=argo-argo-workflows-server --serviceaccount=argo:argowork; \
 	fi
 
 	@if kubectl get secret argowork.service-account-token -n argo &> /dev/null; then \

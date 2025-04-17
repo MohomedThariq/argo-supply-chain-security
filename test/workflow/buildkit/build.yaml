@@ -1,0 +1,86 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: build-
+  labels:
+    argo.slsa.io/enable: "true"
+spec:
+  entrypoint: main
+  arguments:
+    parameters:
+      - name: repo-url
+        value: https://github.com/MohomedThariq/argo-supply-chain-security.git
+      - name: revision
+        value: main
+  volumes:
+    - name: docker-secret
+      secret:
+        secretName: docker-hub-credentials    # name of an existing k8s secret
+        items:
+          - key: .dockerconfigjson
+            path: config.json
+  templates:
+  - name: main
+    inputs:
+      parameters:
+        - name: repo-url
+        - name: revision
+    steps:
+      - - name: build-and-push
+          template: build-and-push-docker
+          arguments:
+            parameters:
+              - name: image
+                value: "{{item.image}}"
+              - name: context
+                value: "{{item.context}}"
+              - name: repo-url
+                value: "{{inputs.parameters.repo-url}}"
+              - name: revision
+                value: "{{inputs.parameters.revision}}"
+          withItems:
+            - { image: "1234thariq/hello-world-1:0.1.0", context: "/source/test/build-src/docker/hello-world-1" }
+            - { image: "1234thariq/hello-world-2:0.1.0", context: "/source/test/build-src/docker/hello-world-2" }
+
+  - name: build-and-push-docker
+    inputs:
+      parameters:
+        - name: image
+        - name: context
+        - name: repo-url
+        - name: revision
+      artifacts:
+        - name: git-source
+          path: /source
+          git:
+            repo: "{{inputs.parameters.repo-url}}"
+            revision: "{{inputs.parameters.revision}}"
+    outputs:
+      parameters:
+        - name: OCI
+          valueFrom:
+            path: /tmp/oci.txt
+    container:
+      image: moby/buildkit:master-rootless
+      securityContext:
+        runAsUser: 1000       # Run as non‑root user
+        runAsNonRoot: true
+      volumeMounts:
+        - name: docker-secret
+          mountPath: /home/user/.docker
+      command: ["/bin/sh", "-c"]
+      args: 
+        - |
+          echo "Building multi-architecture image and pushing to repository..."
+          buildctl --addr tcp://buildkitd:1234 build \
+            --frontend dockerfile.v0 \
+            --local context={{inputs.parameters.context}} \
+            --local dockerfile={{inputs.parameters.context}} \
+            --opt platform=linux/amd64,linux/arm64 \
+            --output type=image,name={{inputs.parameters.image}},push=true \
+            --metadata-file /tmp/metadata.json
+
+          echo "Workflow finished. Image pushed to repository."
+          cat /tmp/metadata.json
+          digest=$(awk -F'"' '/"containerimage.digest"/ {print $4}' /tmp/metadata.json)
+          echo -n "{{inputs.parameters.image}}@${digest}" > /tmp/oci.txt

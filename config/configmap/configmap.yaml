@@ -8,4 +8,8 @@ metadata:
     app.kubernetes.io/name: argo-supply-chain-security
     app.kubernetes.io/managed-by: kustomize
 data:
-  artifacts.signer: tmp
+  # following signing options are available
+  # cosign, kms, fulcio
+  artifacts.signer: cosign
+  signer.transparency.enabled: "true"
+  sbom.generation.enabled: "true"

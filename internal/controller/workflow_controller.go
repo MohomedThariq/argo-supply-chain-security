@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,15 +36,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/MohomedThariq/argo-supply-chain-security/pkg/statusUpdater"
-	wfpr "github.com/MohomedThariq/argo-supply-chain-security/pkg/workflow-pod-reconciler"
+	wfpr "github.com/MohomedThariq/argo-supply-chain-security/internal/workflow-pod-reconciler"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/auth"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/config"
+	"github.com/MohomedThariq/argo-supply-chain-security/pkg/statusupdater"
 )
 
 // Reconciler reconciles a Workflow object
 type Reconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme          *runtime.Scheme
+	InclusterClient kubernetes.Interface
+	Namespace       string
 }
+
+var (
+	serviceAccountInfoPath = "/var/run/secrets/kubernetes.io/serviceaccount"
+)
 
 const (
 	configMapName string = "argo-slsa-config"
@@ -57,11 +66,12 @@ const (
 	reconcileError      string = "Error"
 
 	conflictOrNotFoundError = "conflict or not found"
+
+	requeueAfterSeconds = 0
 )
 
 //+kubebuilder:rbac:groups=argoproj.io,resources=workflows,verbs=get;list;watch;patch
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list
-//+kubebuilder:rbac:groups="",resources=pods/log,verbs=get;list
+//+kubebuilder:rbac:groups="",resources=secrets;serviceaccounts,verbs=get;list
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;patch
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
@@ -75,9 +85,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	if _, err := r.getConfigMap(ctx, configMapName, controllerNamespace); err != nil {
+	configData, err := r.getConfigMap(ctx, configMapName, controllerNamespace)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
+	cfg := config.New(configData)
 
 	// get workflow resource
 	var workflow wfv1alpha1.Workflow
@@ -89,6 +101,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		logger.Error(err, "unable to fetch Workflow")
 		return ctrl.Result{}, err
 	}
+
+	rcfg := config.RuntimeConfig{
+		Client:          r.Client,
+		InclusterClient: r.InclusterClient,
+		Namespace:       r.Namespace,
+		Workflow:        &workflow,
+	}
+	cfg.AuthKeyChain = auth.GetAuthnKeychain(ctx, rcfg.InclusterClient, rcfg.Namespace, rcfg.Workflow)
 
 	// start securing the supply chain if enabled
 	isEnabled := workflow.Labels[enableLabel] == featureEnabled
@@ -109,23 +129,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	// get pod names associated with the workflow
-	var pods wfpr.WorkflowPodsStatus
+	var pods wfpr.WorkflowStatus
 	if err := pods.GetPodInfo(&workflow); err != nil {
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// reconcile the pods
-	if err := pods.Reconcile(ctx, r.Client, workflow.Namespace); err != nil {
+	if err := pods.Reconcile(ctx, cfg, rcfg); err != nil {
 		switch {
 		case err.Error() == "not all workflow pods have been reconciled":
 			logger.Info("Waiting for tasks to execute", "workflow", workflow.Name)
-			return ctrl.Result{RequeueAfter: time.Second * 10}, nil
+			return ctrl.Result{RequeueAfter: time.Second * requeueAfterSeconds}, nil
 
 		case strings.HasPrefix(err.Error(), "error while signing artifacts found in "):
 			if result, err := r.updateWorkflowStatus(ctx, &workflow, reconcileError); err != nil {
 				return result, err
 			}
-			logger.Error(err, "artifact signing error", "workflow", workflow.Name)
+			logger.Error(err, "artifact signing error detected", "workflow", workflow.Name)
 			return ctrl.Result{}, nil
 
 		case err.Error() == conflictOrNotFoundError:
@@ -137,7 +157,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
-	// TODO: attach slsa attestation for the artifacts
+	if err := pods.AttestArtifacts(ctx, cfg, rcfg); err != nil {
+		if result, err := r.updateWorkflowStatus(ctx, &workflow, reconcileError); err != nil {
+			return result, err
+		}
+		logger.Error(err, "artifact attesting error detected", "workflow", workflow.Name)
+		return ctrl.Result{}, nil
+	}
 
 	// set the status to completed
 	if result, err := r.updateWorkflowStatus(ctx, &workflow, reconcileCompleted); err != nil {
@@ -150,7 +176,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 func (r *Reconciler) updateWorkflowStatus(ctx context.Context, workflow *wfv1alpha1.Workflow, status string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	if err := statusUpdater.PatchLabels(ctx, r.Client, workflow, workflowStatusLabel, status); err != nil {
+	if err := statusupdater.PatchLabels(ctx, r.Client, workflow, workflowStatusLabel, status); err != nil {
 		if err.Error() == conflictOrNotFoundError {
 			return ctrl.Result{Requeue: true}, nil
 		}
@@ -166,7 +192,7 @@ func (r *Reconciler) getConfigMap(ctx context.Context, name string, namespace st
 		return nil, err
 	}
 	if configMap.Data == nil {
-		configMap.Data = make(map[string]string)
+		return nil, errors.New("empty config map")
 	}
 	return configMap.Data, nil
 }
@@ -174,7 +200,7 @@ func (r *Reconciler) getConfigMap(ctx context.Context, name string, namespace st
 var getCurrentNamespaceFunc = getCurrentNamespace
 
 func getCurrentNamespace() (string, error) {
-	namespaceFile := filepath.Join("/var/run/secrets/kubernetes.io/serviceaccount", "namespace")
+	namespaceFile := filepath.Join(serviceAccountInfoPath, "namespace")
 	namespace, err := os.ReadFile(namespaceFile)
 	if err != nil {
 		return "", err
@@ -182,30 +208,42 @@ func getCurrentNamespace() (string, error) {
 	return string(namespace), nil
 }
 
-func checkConfigMapExists(ctx context.Context, name string, namespace string) error {
+func clientWithInClusterConfig() (kubernetes.Interface, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	clientset, err := kubernetes.NewForConfig(config)
+	client, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = clientset.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
+
+	return client, err
+}
+
+func (r *Reconciler) checkConfigMapExists(ctx context.Context, name string) error {
+	_, err := r.InclusterClient.CoreV1().ConfigMaps(r.Namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("ConfigMap %s/%s not found: %v", namespace, name, err)
+		return fmt.Errorf("ConfigMap %s/%s not found: %w", r.Namespace, name, err)
 	}
 	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	client, err := clientWithInClusterConfig()
+	if err != nil {
+		panic(err)
+	}
+	r.InclusterClient = client
+
 	namespace, err := getCurrentNamespaceFunc()
 	if err != nil {
 		panic(err)
 	}
+	r.Namespace = namespace
 
-	if err = checkConfigMapExists(context.Background(), configMapName, namespace); err != nil {
+	if err = r.checkConfigMapExists(context.Background(), configMapName); err != nil {
 		panic(err)
 	}
 

@@ -1,4 +1,4 @@
-package statusUpdater
+package statusupdater
 
 import (
 	"context"

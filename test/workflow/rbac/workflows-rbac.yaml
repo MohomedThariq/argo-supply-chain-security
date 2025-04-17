@@ -4,10 +4,16 @@ metadata:
   name: argo-workflow-role
 rules:
 - apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["patch"]
+  resources: ["pods", "pods/log", "pods/status", "events"]
+  verbs: ["get", "watch", "patch", "list", "create"]
 - apiGroups: ["argoproj.io"]
   resources: ["workflowtaskresults"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["argoproj.io"]
+  resources: ["workflows", "workflows/status", "workflows/finalizers", "workflowtemplates", "workfloweventbindings"]  # Added workfloweventbindings
+  verbs: ["get", "list", "watch", "update", "patch", "delete", "create"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
