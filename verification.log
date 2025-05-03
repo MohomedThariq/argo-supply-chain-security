@@ -1,0 +1,14 @@
+# Verify image signature
+cosign verify 1234thariq/hello-world-1:0.1.0 --key k8s://argo-slsa/signing-secret | jq -r
+
+# Verify slsa provenance
+cosign verify-attestation --key k8s://argo-slsa/signing-secret 1234thariq/hello-world-1:0.1.0 --type slsaprovenance1 | jq -r
+
+# Verify sbom for a specific image architecture
+cosign verify-attestation --key k8s://argo-slsa/signing-secret 1234thariq/hello-world-1@sha256:dca2705205501f10b6c113ed1b5280e218f80e8b4221884ce737227c5163f94b --type cyclonedx | jq -r ".payload" | base64 -d | jq -r ".predicate" > sbom.json
+
+# Check vulnerabilities of the image
+grype sbom:./sbom.json
+
+# verification automation script
+./verification.sh 1234thariq/hello-world-1:0.1.0 1234thariq/hello-world-2:0.1.0
